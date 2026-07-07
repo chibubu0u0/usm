@@ -1,0 +1,1579 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<title>USM 模組化系統 配置與報價工具(3D 版)</title>
+<style>
+  :root{
+    --border:#d8d8d6;
+    --bg:#f7f7f5;
+    --panel:#ffffff;
+    --accent:#1e2f3c;
+    --text:#222;
+    --muted:#777;
+  }
+  *{box-sizing:border-box;}
+  body{
+    font-family:"PingFang TC","Microsoft JhengHei",Helvetica,Arial,sans-serif;
+    background:var(--bg);
+    color:var(--text);
+    margin:0;
+    padding:20px;
+  }
+  h1{font-size:20px;margin:0 0 4px;}
+  h2{font-size:15px;margin:0 0 10px;border-bottom:1px solid var(--border);padding-bottom:6px;}
+  .sub{color:var(--muted);font-size:13px;margin-bottom:18px;}
+  .layout{
+    display:grid;
+    grid-template-columns: 400px 1fr;
+    gap:20px;
+    align-items:stretch; /* 讓右欄跟左欄一樣高,sticky預覽卡才有足夠空間可以一路跟著捲動 */
+  }
+  .card{
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:10px;
+    padding:16px;
+    margin-bottom:16px;
+  }
+  /* 3D 預覽固定在右欄,並跟著捲動軸黏在畫面上,調整左邊設定時始終看得到 */
+  #previewCard{ position:sticky; top:20px; z-index:5; }
+  @media print{ #previewCard{ position:static; } }
+  label{font-size:13px;display:block;margin:8px 0 4px;color:#444;}
+  input[type=number], select, input[type=text], textarea{
+    width:100%;
+    padding:6px 8px;
+    border:1px solid var(--border);
+    border-radius:6px;
+    font-size:13px;
+    background:#fff;
+    font-family:inherit;
+  }
+  textarea{resize:vertical;min-height:80px;}
+  .wizardSummary{
+    font-size:12.5px;
+    line-height:1.7;
+    background:#f5f6f2;
+    border:1px solid var(--border);
+    border-radius:8px;
+    padding:10px 12px;
+    margin-top:10px;
+    white-space:pre-line;
+  }
+  .wizardSummary:empty{display:none;}
+  .chatMessages{
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+    max-height:320px;
+    overflow-y:auto;
+    padding:10px;
+    background:#f5f6f2;
+    border:1px solid var(--border);
+    border-radius:8px;
+    margin-top:8px;
+  }
+  .chatBubble{
+    max-width:82%;
+    padding:8px 12px;
+    border-radius:12px;
+    font-size:13px;
+    line-height:1.6;
+    white-space:pre-line;
+  }
+  .chatBubble.bot{
+    align-self:flex-start;
+    background:#fff;
+    border:1px solid var(--border);
+    border-bottom-left-radius:2px;
+  }
+  .chatBubble.user{
+    align-self:flex-end;
+    background:var(--accent);
+    color:#fff;
+    border-bottom-right-radius:2px;
+  }
+  .chatInputRow{display:flex;gap:8px;margin-top:10px;}
+  .chatInputRow input{flex:1;}
+  .chatInputRow button{white-space:nowrap;}
+  .chatAdminToggle{
+    font-size:11.5px;
+    color:var(--muted);
+    cursor:pointer;
+    text-decoration:underline;
+    margin-top:8px;
+    display:inline-block;
+  }
+  .chatAdminPanel{margin-top:4px;}
+  .row{display:flex;gap:8px;}
+  .row > div{flex:1;}
+  .colWidthList{display:flex;flex-direction:column;gap:6px;margin-top:6px;}
+  .colWidthList .item{display:flex;align-items:center;gap:6px;font-size:12px;}
+  .colWidthList .item span{width:44px;color:var(--muted);}
+  .checkline{display:flex;align-items:center;gap:8px;font-size:13px;margin:6px 0;}
+  .checkline input{width:auto;}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  th,td{border:1px solid var(--border);padding:5px 6px;text-align:center;}
+  th{background:#f0efe9;font-weight:600;}
+  td.rowlabel, th.rowlabel{text-align:left;background:#fafaf8;}
+  .gridEditor{display:grid;gap:6px;margin-top:8px;}
+  .cellEditor{border:1px solid var(--border);border-radius:6px;padding:6px;background:#fbfbfa;}
+  .cellEditor select{margin-bottom:4px;}
+  .cellEditor .lbl{font-size:11px;color:var(--muted);margin-bottom:2px;}
+  #canvasWrap{width:100%;height:min(70vh, 560px);min-height:380px;border-radius:8px;position:relative;cursor:grab;background:linear-gradient(180deg,#f4f4f2,#e9e9e6);}
+  .hint{font-size:11.5px;color:var(--muted);text-align:center;margin-top:6px;}
+  .bomTotal{font-size:16px;font-weight:700;text-align:right;margin-top:10px;}
+  .warn{color:#a4370f;font-size:12.5px;margin-top:6px;}
+  .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;}
+  button{
+    padding:8px 14px;
+    border-radius:6px;
+    border:1px solid var(--accent);
+    background:var(--accent);
+    color:#fff;
+    font-size:13px;
+    cursor:pointer;
+  }
+  button.secondary{background:#fff;color:var(--accent);}
+  .customerFields{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .customerFields .full{grid-column:1/3;}
+  .note{font-size:11.5px;color:var(--muted);margin-top:4px;line-height:1.5;}
+  @media print{
+    .no-print{display:none !important;}
+    .layout{grid-template-columns:1fr;}
+    body{padding:0;}
+    .card{border:none;padding:0;margin-bottom:14px;}
+  }
+</style>
+</head>
+<body>
+
+<h1>USM 模組化系統 — 配置與報價工具(3D 版 v2)</h1>
+<div class="sub">獨立網頁應用,雙擊開啟即可使用,不需連上任何 Claude 對話。「0. 顧客需求小幫手」聊天時會連線到後端取得 AI 回覆(需要網路連線);連線失敗會自動改用離線關鍵字比對。3D 球接頭/連接管尺寸依官方規格比例建模(球徑20mm、管徑12.7mm),但面板/門片顏色為近似色、實際五金明細仍以 USM 官方報價為準。</div>
+
+<div class="layout">
+  <div>
+    <div class="card no-print">
+      <h2>0. 顧客需求小幫手(對話式產生初始配置)</h2>
+      <div class="note">用聊天的方式回答幾個簡單問題(用途、尺寸、風格、預算),小幫手會自動生成一組建議配置,之後也可以隨時再跟它說想調整什麼。生成後請務必檢查一遍。</div>
+      <div class="chatAdminToggle no-print" id="chatAdminToggle">⚙ 後端設定(店家用)</div>
+      <div class="chatAdminPanel" id="chatAdminPanel" style="display:none;">
+        <label style="margin-top:10px;">AI 後端網址(留空則使用內建的預設網址;金鑰本身只存在後端環境變數,不會出現在這裡)</label>
+        <input type="text" id="chatEndpointInput" placeholder="https://your-project.vercel.app/api/chat">
+        <div class="note" id="chatStatus"></div>
+      </div>
+      <div class="chatMessages" id="chatMessages"></div>
+      <div class="chatInputRow">
+        <input type="text" id="chatInput" placeholder="輸入回覆,按 Enter 送出...">
+        <button id="chatSendBtn">送出</button>
+        <button class="secondary" id="chatResetBtn">重新開始對話</button>
+      </div>
+    </div>
+
+    <div class="card no-print">
+      <h2>1. 客戶 / 專案資訊</h2>
+      <div class="customerFields">
+        <div><label>客戶名稱</label><input type="text" id="custName" placeholder="王小姐"></div>
+        <div><label>專案名稱</label><input type="text" id="projName" placeholder="辦公室收納櫃"></div>
+        <div><label>日期</label><input type="text" id="quoteDate"></div>
+        <div><label>報價編號</label><input type="text" id="quoteNo" placeholder="Q-2026-001"></div>
+        <div class="full"><label>備註</label><input type="text" id="quoteNote" placeholder="交期 / 特殊需求等"></div>
+      </div>
+    </div>
+
+    <div class="card no-print">
+      <h2>2. 整體結構設定</h2>
+      <div class="row">
+        <div><label>欄數(左右幾格)</label><input type="number" id="colsCount" min="1" max="8" value="3"></div>
+        <div><label>層數(上下幾格)</label><input type="number" id="rowsCount" min="1" max="6" value="3"></div>
+      </div>
+      <div class="row">
+        <div>
+          <label>每層高度</label>
+          <select id="rowHeight"><option value="35">35 cm</option><option value="50">50 cm</option><option value="75">75 cm</option></select>
+        </div>
+        <div>
+          <label>深度</label>
+          <select id="depth"><option value="35">35 cm</option><option value="50">50 cm</option><option value="75">75 cm</option></select>
+        </div>
+      </div>
+      <label>各欄寬度</label>
+      <div class="colWidthList" id="colWidthList"></div>
+
+      <label style="margin-top:10px;">主色(預設套用於門片/面板,各段/各格若不個別指定顏色則跟隨此色)</label>
+      <select id="mainColor"></select>
+
+      <div class="checkline"><input type="checkbox" id="leftPanel" checked> <label style="margin:0;">左側板</label></div>
+      <div class="checkline"><input type="checkbox" id="rightPanel" checked> <label style="margin:0;">右側板</label></div>
+      <div class="checkline"><input type="checkbox" id="topPanel" checked> <label style="margin:0;">頂板</label></div>
+      <div class="checkline"><input type="checkbox" id="bottomPanel" checked> <label style="margin:0;">底板</label></div>
+
+      <label style="margin-top:10px;">左側板顏色(依層獨立,不選則跟隨主色)</label>
+      <div class="colWidthList" id="leftPanelColorList"></div>
+      <label style="margin-top:10px;">右側板顏色(依層獨立,不選則跟隨主色)</label>
+      <div class="colWidthList" id="rightPanelColorList"></div>
+      <label style="margin-top:10px;">頂板顏色(依欄獨立,不選則跟隨主色)</label>
+      <div class="colWidthList" id="topPanelColorList"></div>
+      <label style="margin-top:10px;">底板顏色(依欄獨立,不選則跟隨主色)</label>
+      <div class="colWidthList" id="bottomPanelColorList"></div>
+    </div>
+
+    <div class="card no-print">
+      <h2>3. 櫃體外觀(點擊決定每格是否存在)</h2>
+      <div class="note">預設整個矩形都存在。點一下可以把某一格移除,做出左右高度不同、樓梯狀的外觀(例如左邊只留1層、中間2層、右邊3層);再點一次可以加回來。最上面/最下面沒被留住的格子,頂板/底板會自動跟著該欄實際的高度走。</div>
+      <div class="gridEditor" id="shapeEditor"></div>
+    </div>
+
+    <div class="card no-print">
+      <h2>4. 每格面板 / 門片</h2>
+      <div class="note">由下往上第1層開始。可個別選擇類型與顏色(不選色則套用主色),每格也可獨立勾選是否加背板。玻璃面板/玻璃門固定為清玻璃,沒有 RAL 上色選項(與實際產品一致)。抽屜選項暫時隱藏,效果調整好之後會再加回來。已在上方移除的格子不會出現在這裡。</div>
+      <div class="gridEditor" id="gridEditor"></div>
+    </div>
+
+    <div class="card no-print">
+      <h2>5. 單價設定(請填入你的實際單價)</h2>
+      <div class="note">單位:每件。寬度分級對應該欄/該層所屬的 35 / 50 / 75 cm 尺寸。抽屜類為固定尺寸單品(官方規格為深度50cm專用),與寬度分級無關。價格會自動儲存在此瀏覽器中。</div>
+      <div id="priceTables"></div>
+      <div class="actions">
+        <button class="secondary" id="exportJson">匯出設定(JSON)</button>
+        <button class="secondary" id="importJsonBtn">匯入設定(JSON)</button>
+        <input type="file" id="importJsonFile" style="display:none" accept="application/json">
+        <button class="secondary" id="resetPrices">還原預設單價(歸零)</button>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="card" id="previewCard">
+      <h2>3D 立體預覽</h2>
+      <div id="canvasWrap"></div>
+      <div class="hint">拖曳旋轉、滾輪縮放</div>
+      <div class="note" id="dimsSummary"></div>
+    </div>
+
+    <div class="card">
+      <h2>零件清單(BOM)</h2>
+      <table id="bomTable">
+        <thead><tr><th class="rowlabel">項目</th><th>規格</th><th>數量</th><th>單價</th><th>小計</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="bomTotal" id="grandTotal"></div>
+      <div class="warn" id="warnBox"></div>
+    </div>
+
+    <div class="card no-print">
+      <h2>輸出</h2>
+      <div class="actions">
+        <button id="printBtn">列印 / 另存為 PDF</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+/* ---------- 顏色對照(近似 RAL,僅供畫面預覽參考) ---------- */
+const COLORS = [
+  {id:'ral9010', name:'純白 RAL9010', hex:'#F3F3EF'},
+  {id:'ral7035', name:'淺灰 RAL7035', hex:'#D3D4D2'},
+  {id:'ral5011', name:'鋼藍 RAL5011', hex:'#233240'},
+  {id:'ral5010', name:'龍膽藍 RAL5010', hex:'#194266'},
+  {id:'usmgreen', name:'USM綠', hex:'#4C7A34'},
+  {id:'ral1004', name:'金黃 RAL1004', hex:'#E1AE13'},
+  {id:'usmbrown', name:'USM棕', hex:'#6C4A2E'},
+  {id:'ral2004', name:'純橘 RAL2004', hex:'#D9560E'},
+  {id:'usmbeige', name:'USM米', hex:'#D8C7A7'},
+  {id:'ral6003', name:'橄欖綠 RAL6003', hex:'#54622F'},
+  {id:'usmred', name:'USM紅', hex:'#7C2430'},
+  {id:'usmgrey', name:'USM中灰', hex:'#8C877E'},
+  {id:'ral7016', name:'炭黑 RAL7016', hex:'#383E42'},
+  {id:'ral9011', name:'石墨黑 RAL9011', hex:'#1B1D1F'}
+];
+
+const CELL_TYPES = [
+  {id:'open', name:'開放層(無面板)', kind:'tiered', fixedZero:true, category:'open'},
+  {id:'panel_fixed', name:'固定面板(封閉)', kind:'tiered', category:'panel'},
+  {id:'panel_perforated', name:'沖孔金屬面板', kind:'tiered', category:'panel'},
+  {id:'panel_acoustic', name:'隔音面板', kind:'tiered', category:'panel'},
+  {id:'panel_glass', name:'玻璃面板(固定)', kind:'tiered', category:'glass'},
+  {id:'door_flip_metal', name:'金屬掀門', kind:'tiered', category:'door'},
+  {id:'door_glass', name:'玻璃門', kind:'tiered', category:'glass'},
+  {id:'door_dropdown_acoustic', name:'隔音下掀門', kind:'tiered', category:'door'},
+  {id:'door_dropdown_metal', name:'金屬下掀門', kind:'tiered', category:'door'},
+  {id:'door_extension_metal', name:'金屬伸縮門', kind:'tiered', category:'door'},
+  {id:'drawer_a5', name:'A5 抽屜(限深50cm)', kind:'flat', category:'drawer'},
+  {id:'drawer_a4', name:'A4 抽屜(限深50cm)', kind:'flat', category:'drawer'},
+  {id:'drawer_small', name:'小型抽屜(限深50cm)', kind:'flat', category:'drawer'},
+  {id:'drawer_a6', name:'A6 抽屜(限深50cm)', kind:'flat', category:'drawer'}
+];
+const TIERS = [35,50,75];
+// 玻璃(玻璃面板/玻璃門)實際上是固定的強化清玻璃,USM 官方並沒有像烤漆金屬面板那樣
+// 提供 RAL 色卡可選,不論主色或每格顏色怎麼設,玻璃永遠用這個固定的清玻璃色調渲染。
+const GLASS_TINT_HEX = '#dfe9e6';
+// 抽屜類暫時停用(效果尚未調好,先隱藏選項,之後隨時可以移除這行篩選來重新開放)
+const ENABLED_CELL_TYPES = CELL_TYPES.filter(t=>t.category!=='drawer');
+
+/* ---------- 狀態 ---------- */
+let state = {
+  cols: [75,75,50],
+  rows: 3,
+  rowHeight: 35,
+  depth: 35,
+  mainColor: 'ral9011',
+  leftPanel:true, rightPanel:true, topPanel:true, bottomPanel:true,
+  cells: {},
+  backPanels: {}, // "r_c" -> true 表示這一格有背板(每格獨立可選,不設定=沒有背板)
+  shelfColors: {}, // "r_c" -> colorId(每一格層板獨立),不設定則跟隨主色
+  leftPanelColors: {}, // r -> colorId(左側板每一層獨立)
+  rightPanelColors: {}, // r -> colorId(右側板每一層獨立)
+  topPanelColors: {}, // c -> colorId(頂板每一欄獨立)
+  bottomPanelColors: {}, // c -> colorId(底板每一欄獨立)
+  dividers: {}, // "r_b" -> {enabled, color} : 第r層、第b欄與第b+1欄之間的直立隔板(b: 0 ~ 欄數-2)
+  mask: {}, // "r_c" -> false 表示這一格被移除(不存在);沒有紀錄=預設存在
+  prices: { ball:0, tube:{35:0,50:0,75:0} }
+};
+CELL_TYPES.forEach(t=>{
+  if(t.kind==='tiered') state.prices[t.id] = {35:0,50:0,75:0};
+  else state.prices[t.id] = 0;
+});
+
+/* ---------- localStorage ---------- */
+const LS_KEY='usm_configurator_3d_state_v1';
+function loadState(){
+  try{
+    const raw = localStorage.getItem(LS_KEY);
+    if(raw){ state = Object.assign(state, JSON.parse(raw)); }
+  }catch(e){ console.warn('load state failed', e); }
+}
+function saveState(){
+  try{ localStorage.setItem(LS_KEY, JSON.stringify(state)); }catch(e){}
+}
+
+/* ---------- 工具 ---------- */
+function colorHex(id){ const c=COLORS.find(c=>c.id===id); return c? c.hex : '#ccc'; }
+function colorName(id){ const c=COLORS.find(c=>c.id===id); return c? c.name : id; }
+function cellKey(r,c){ return r+'_'+c; }
+function getCell(r,c){
+  const k=cellKey(r,c);
+  if(!state.cells[k]) state.cells[k] = {type:'open', color:''};
+  return state.cells[k];
+}
+function getShelfColor(r,c){
+  const id = state.shelfColors[r+'_'+c];
+  return id ? id : state.mainColor;
+}
+function getSegColor(map, key){
+  const id = state[map][key];
+  return id ? id : state.mainColor;
+}
+function getDivider(r,b){
+  const k=r+'_'+b;
+  if(!state.dividers[k]) state.dividers[k] = {enabled:false, color:''};
+  return state.dividers[k];
+}
+function getDividerColor(r,b){
+  const d = getDivider(r,b);
+  return d.color ? d.color : state.mainColor;
+}
+function getBackPanel(r,c){
+  return !!state.backPanels[r+'_'+c];
+}
+
+/* ---------- 外觀輪廓(不規則高度)相關 ---------- */
+function getMask(r,c){
+  const v = state.mask[r+'_'+c];
+  return v === false ? false : true; // 預設存在
+}
+function isFilled(r,c){
+  if(r<0||r>=state.rows||c<0||c>=state.cols.length) return false;
+  return getMask(r,c);
+}
+// 依目前的「外觀輪廓」計算實際需要的球接頭位置、橫向管、縱向管(只在真正有格子的地方才產生,
+// 兩個相鄰欄高度不同時,共用的那一支直柱會沿著較高欄位的高度往上延伸)
+function computeFrameSets(){
+  const M=state.rows, N=state.cols.length;
+  const points=new Set(), hTubes=new Set(), vTubes=new Set();
+  for(let r=0;r<M;r++){
+    for(let c=0;c<N;c++){
+      if(!isFilled(r,c)) continue;
+      points.add(c+'_'+r); points.add((c+1)+'_'+r); points.add(c+'_'+(r+1)); points.add((c+1)+'_'+(r+1));
+      hTubes.add(c+'_'+r); hTubes.add(c+'_'+(r+1));
+      vTubes.add(c+'_'+r); vTubes.add((c+1)+'_'+r);
+    }
+  }
+  return {points,hTubes,vTubes};
+}
+function colTopRow(c){ // 該欄最高的存在層(由上往下找),都沒有回傳 -1
+  for(let r=state.rows-1;r>=0;r--) if(isFilled(r,c)) return r;
+  return -1;
+}
+function colBottomRow(c){ // 該欄最低的存在層,都沒有回傳 -1
+  for(let r=0;r<state.rows;r++) if(isFilled(r,c)) return r;
+  return -1;
+}
+
+/* ---------- 顧客需求精靈:AI 理解 → 轉成實際配置 ----------
+   「聽懂客戶在說什麼」這件事完全交給後面的 AI 後端判斷(不再有離線關鍵字比對版本)。
+   這裡保留的只是「理解結果之後,怎麼把用途/風格/預算換算成實際的層板/門片/顏色配置」
+   這段純粹的規則轉換邏輯,以及提供 AI 結果對照用的描述文字(desc)。 */
+const WIZARD_PURPOSE_RULES = [
+  { id:'display', keywords:['展示','收藏','公仔','酒櫃','藝品','擺飾','珍藏','收藏品'], desc:'展示型(較多玻璃門片呈現收藏品)' },
+  { id:'tv', keywords:['電視','影音','視聽','客廳櫃','客廳'], desc:'電視櫃型(下方封閉收納、上方開放放置視聽設備)' },
+  { id:'wardrobe', keywords:['衣櫃','衣物','衣服','衣帽間','更衣室','換季'], desc:'衣櫃型(以門片為主,保護隱私)' },
+  { id:'book', keywords:['書櫃','書籍','藏書','書房','書'], desc:'書櫃型(以開放層板為主,方便取閱)' },
+  { id:'office', keywords:['辦公','文件','資料','辦公室','事務所','公文'], desc:'辦公收納型(以封閉面板為主)' }
+];
+const WIZARD_STYLE_RULES = [
+  { id:'wood', keywords:['木質','原木','溫暖','木紋','大地色','溫馨'], color:'usmbeige', desc:'木質溫暖色系(米色系)' },
+  { id:'modern', keywords:['現代','簡約','北歐','清爽','簡潔','白色','純白'], color:'ral9010', desc:'現代簡約白' },
+  { id:'dark', keywords:['沉穩','深色','黑色','工業風','質感深','低調','深沉'], color:'ral9011', desc:'沉穩深色(石墨黑)' },
+  { id:'bold', keywords:['撞色','繽紛','活潑','大膽','彩色','鮮豔','跳色'], color:null, desc:'大膽撞色(多色混搭)' }
+];
+const WIZARD_BUDGET_RULES = [
+  { id:'low', keywords:['陽春','精簡','入門','預算有限','簡單就好','便宜','經濟','省錢'], desc:'精簡預算(以開放層板+基本封閉面板為主,不含玻璃/隔板/背板)' },
+  { id:'high', keywords:['高階','豪華','頂級','預算充足','不設限','高級','質感佳'], desc:'高階預算(加入玻璃門、格間隔板、背板等進階選項)' },
+  // 「中等」原本只是沒偵測到時的預設值,沒有對應的關鍵字,導致客戶直接回答「中等預算」時
+  // 反而會被系統當成聽不懂——這裡補上明確的關鍵字,讓「中等/普通/都可以」也能被正確辨識成一個答案。
+  { id:'mid', keywords:['中等','普通','一般','適中','尚可','都可以','隨便你','你決定','不知道','沒差'], desc:'中等預算(基本開放/封閉混搭,不特別加玻璃/隔板/背板)' }
+];
+const WIZARD_BOLD_PALETTE = ['ral2004','ral5010','usmgreen','usmred','ral1004'];
+
+function wizardFitDimension(target, maxCount){
+  if(!target) return null;
+  let best=null;
+  for(let n=1;n<=maxCount;n++){
+    TIERS.forEach(tier=>{
+      const total=n*tier;
+      const err=Math.abs(total-target);
+      if(!best || err<best.err) best={n,tier,err,total};
+    });
+  }
+  return best;
+}
+// 依「用途」+「預算」決定每一格的面板/門片類型,並視情況加上隔板/背板。
+// r/c 皆為 0-index,r 由下往上算(跟 state 內部座標一致)。
+function wizardBuildCellPlan(rows, cols, purposeId, budgetId){
+  const cellsByRC = {}, dividers = {}, backPanels = {};
+  for(let r=0;r<rows;r++){
+    const isBottomHalf = r < rows/2;
+    for(let c=0;c<cols;c++){
+      const key = r+'_'+c;
+      let type = 'open';
+      switch(purposeId){
+        case 'display':
+          type = (budgetId==='low') ? (isBottomHalf ? 'panel_fixed' : 'open')
+               : (budgetId==='high') ? (isBottomHalf ? 'door_glass' : 'open')
+               : ((r+c)%2===0 ? 'door_glass' : 'open');
+          break;
+        case 'tv':
+          type = isBottomHalf ? (budgetId==='low' ? 'panel_fixed' : 'door_flip_metal') : 'open';
+          break;
+        case 'wardrobe':
+          type = (budgetId==='high') ? 'door_extension_metal' : 'door_flip_metal';
+          break;
+        case 'book':
+          type = (isBottomHalf && budgetId!=='low') ? 'panel_fixed' : 'open';
+          break;
+        case 'office':
+          type = (budgetId==='high') ? (isBottomHalf ? 'panel_fixed' : 'panel_perforated') : 'panel_fixed';
+          if(!isBottomHalf && budgetId!=='low' && c===Math.floor(cols/2)) type='open'; // 留一格開放放常用物品
+          break;
+        default: // mixed:沒偵測到明確用途,採開放/封閉交錯的通用配置
+          type = (r+c)%2===0 ? 'panel_fixed' : 'open';
+      }
+      cellsByRC[key] = {type, color:''};
+    }
+  }
+  if(budgetId==='high'){
+    // 高預算加分項:書櫃/展示櫃適合加格間隔板做分區;封閉格加背板讓質感更完整
+    for(let r=0;r<rows;r++){
+      for(let b=0;b<cols-1;b++){
+        if(purposeId==='book' || purposeId==='display'){
+          dividers[r+'_'+b] = {enabled:true, color:''};
+        }
+      }
+    }
+    for(let r=0;r<rows;r++){
+      for(let c=0;c<cols;c++){
+        if(cellsByRC[r+'_'+c].type !== 'open') backPanels[r+'_'+c] = true;
+      }
+    }
+  }
+  return {cellsByRC, dividers, backPanels};
+}
+// 目前對話收集到的需求輪廓(不會存進 localStorage,重新整理頁面就會重新開始對話)
+let chatProfile = { purposeId:null, W:null, H:null, D:null, mainColor:null, boldStyle:false, budgetId:null, __generated:false };
+
+function chatDescribeProfile(p){
+  const purposeDesc = (WIZARD_PURPOSE_RULES.find(r=>r.id===p.purposeId)||{}).desc || '一般用途(開放/封閉交錯)';
+  const budgetDesc = (WIZARD_BUDGET_RULES.find(r=>r.id===p.budgetId)||{}).desc || '中等預算';
+  const styleDesc = p.boldStyle ? '大膽撞色(多色混搭)' : (p.mainColor ? colorName(p.mainColor) : '沿用目前主色');
+  const dimsParts = [];
+  if(p.W) dimsParts.push(`寬約${p.W}cm`);
+  if(p.H) dimsParts.push(`高約${p.H}cm`);
+  if(p.D) dimsParts.push(`深約${p.D}cm`);
+  const dimsDesc = dimsParts.length ? dimsParts.join('、') : '沿用目前尺寸設定';
+  return `用途:${purposeDesc}\n尺寸:${dimsDesc}\n風格:${styleDesc}\n預算:${budgetDesc}`;
+}
+// 把目前收集到的 profile 實際套用到 state(欄寬/層數/層高/深度/主色/每格配置),
+// 邏輯跟先前單次版精靈的「套用」流程一樣,只是資料來源改成累積的 chatProfile。
+function applyWizardProfile(profile){
+  let colsArr = state.cols.slice(), rows = state.rows, rowHeight = state.rowHeight, depth = state.depth;
+  const wFit = wizardFitDimension(profile.W, 6);
+  const hFit = wizardFitDimension(profile.H, 6);
+  if(wFit) colsArr = new Array(wFit.n).fill(wFit.tier);
+  if(hFit){ rows = hFit.n; rowHeight = hFit.tier; }
+  if(profile.D){
+    let bestTier=TIERS[0], bestErr=Infinity;
+    TIERS.forEach(t=>{ const e=Math.abs(t-profile.D); if(e<bestErr){bestErr=e; bestTier=t;} });
+    depth = bestTier;
+  }
+  const purposeId = profile.purposeId || 'mixed';
+  const budgetId = profile.budgetId || 'mid';
+  const mainColor = profile.boldStyle ? state.mainColor : (profile.mainColor || state.mainColor);
+
+  state.cols = colsArr;
+  state.rows = rows;
+  state.rowHeight = rowHeight;
+  state.depth = depth;
+  state.mainColor = mainColor;
+
+  // 清空舊的每格設定,套用全新規劃(維持乾淨、一致的結果)
+  state.mask = {};
+  state.cells = {};
+  state.shelfColors = {};
+  state.leftPanelColors = {};
+  state.rightPanelColors = {};
+  state.topPanelColors = {};
+  state.bottomPanelColors = {};
+  state.dividers = {};
+  state.backPanels = {};
+
+  const plan = wizardBuildCellPlan(rows, colsArr.length, purposeId, budgetId);
+  Object.keys(plan.cellsByRC).forEach(key=>{ state.cells[key] = plan.cellsByRC[key]; });
+  Object.keys(plan.dividers).forEach(key=>{ state.dividers[key] = plan.dividers[key]; });
+  Object.keys(plan.backPanels).forEach(key=>{ state.backPanels[key] = true; });
+
+  if(profile.boldStyle){
+    // 撞色風格:每個封閉格輪流套用不同顏色,而不是統一主色
+    let i=0;
+    Object.keys(state.cells).forEach(key=>{
+      const cell = state.cells[key];
+      if(cell.type!=='open'){ cell.color = WIZARD_BOLD_PALETTE[i % WIZARD_BOLD_PALETTE.length]; i++; }
+    });
+  }
+
+  renderAll();
+  syncTopControlsFromState();
+}
+function addChatBubble(text, from){
+  const wrap = document.getElementById('chatMessages');
+  const b = document.createElement('div');
+  b.className = 'chatBubble ' + (from==='user' ? 'user' : 'bot');
+  b.textContent = text;
+  wrap.appendChild(b);
+  wrap.scrollTop = wrap.scrollHeight;
+}
+
+/* ---------- AI 後端:內建預設網址,對話理解完全交給 AI 判斷 ----------
+   金鑰(ANTHROPIC_API_KEY)只存在後端(Vercel 環境變數),這裡只是後端「網址」,
+   不是密鑰本身,所以直接寫在檔案裡是安全的。一般客戶不需要、也看不到任何設定欄位;
+   只有店家自己需要換後端網址時,才需要點開下面隱藏的「後端設定(店家用)」。
+   刻意不做離線關鍵字比對的備援版本:如果同時有兩套「理解邏輯」交錯運作,
+   客戶會覺得對話忽好忽壞、一直卡在同樣的問題上打轉。連線失敗時會誠實告知客戶,
+   而不是偷偷切換成另一套規則。 */
+const CHAT_ENDPOINT_LS_KEY = 'usm_chat_endpoint_v1';
+// 這是目前實際部署好的後端網址,之後如果重新部署換了新網址,更新這裡就好。
+const DEFAULT_CHAT_ENDPOINT = 'https://usm-tau.vercel.app/api/chat';
+// 這個對話歷史只在這個分頁的記憶體裡,重新整理頁面就會清空(不會存進 localStorage)。
+let chatHistory = [];
+const VALID_PURPOSE_IDS = ['book','tv','wardrobe','display','office','mixed'];
+function getChatEndpoint(){
+  try{
+    const stored = (localStorage.getItem(CHAT_ENDPOINT_LS_KEY) || '').trim();
+    return stored || DEFAULT_CHAT_ENDPOINT;
+  }catch(e){ return DEFAULT_CHAT_ENDPOINT; }
+}
+function setChatEndpointStored(v){
+  try{ localStorage.setItem(CHAT_ENDPOINT_LS_KEY, v || ''); }catch(e){}
+}
+// 這個狀態列是給店家自己看的除錯資訊(放在隱藏的「後端設定」面板裡,一般客戶不會看到)。
+function setChatStatus(state){
+  const el = document.getElementById('chatStatus');
+  if(!el) return;
+  if(state==='ok'){
+    el.textContent = '目前模式:AI 已連線';
+    el.style.color = '#2e7d32';
+  } else if(state==='error'){
+    el.textContent = '目前模式:AI 連線失敗';
+    el.style.color = '#a4370f';
+  } else {
+    el.textContent = '目前模式:尚未測試連線';
+    el.style.color = '';
+  }
+}
+// 把 AI 後端回傳的 profileUpdate(purpose/width_cm/height_cm/depth_cm/style/budget/ready_to_generate)
+// 對應/合併進跟本機關鍵字比對共用的同一份 chatProfile 資料結構,後續套用邏輯完全共用。
+function mergeAiProfileUpdate(profileUpdate){
+  if(!profileUpdate) return;
+  if(profileUpdate.purpose && VALID_PURPOSE_IDS.indexOf(profileUpdate.purpose)!==-1){
+    chatProfile.purposeId = profileUpdate.purpose;
+  }
+  if(typeof profileUpdate.width_cm==='number' && profileUpdate.width_cm>0) chatProfile.W = profileUpdate.width_cm;
+  if(typeof profileUpdate.height_cm==='number' && profileUpdate.height_cm>0) chatProfile.H = profileUpdate.height_cm;
+  if(typeof profileUpdate.depth_cm==='number' && profileUpdate.depth_cm>0) chatProfile.D = profileUpdate.depth_cm;
+  if(profileUpdate.style){
+    const styleRule = WIZARD_STYLE_RULES.find(r=>r.id===profileUpdate.style);
+    if(styleRule){
+      if(styleRule.id==='bold'){ chatProfile.boldStyle = true; chatProfile.mainColor = null; }
+      else { chatProfile.boldStyle = false; chatProfile.mainColor = styleRule.color; }
+    }
+  }
+  if(profileUpdate.budget && WIZARD_BUDGET_RULES.some(r=>r.id===profileUpdate.budget)){
+    chatProfile.budgetId = profileUpdate.budget;
+  }
+}
+// 第一次生成時附上完整摘要(用途/尺寸/風格/預算),讓客戶確認 AI 有聽懂;
+// 之後每次更新只給簡短提示,不再重複整段摘要——避免每一輪都印出同樣一大段文字,
+// 讓對話感覺像跳針一樣不斷重複。
+function chatMaybeGenerate(replyPrefix){
+  const isFirst = !chatProfile.__generated;
+  applyWizardProfile(chatProfile);
+  let note;
+  if(isFirst){
+    const recap = chatDescribeProfile(chatProfile);
+    note = `好的,已經幫您產生配置:\n${recap}\n\n可以到下方各卡片檢查細節,也可以繼續跟我說想調整的地方,我會重新幫您套用。`;
+  } else {
+    note = '好的,已經幫您更新配置,可以到下方檢查看看。';
+  }
+  const text = (replyPrefix ? replyPrefix + '\n\n' : '') + note;
+  addChatBubble(text, 'bot');
+  chatProfile.__generated = true;
+}
+async function callAiBackend(endpoint, text, history){
+  const res = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ message: text, history })
+  });
+  if(!res.ok) throw new Error('AI 後端回應狀態碼 '+res.status);
+  const data = await res.json();
+  if(!data || typeof data.assistantText !== 'string'){
+    throw new Error('AI 後端回傳格式不正確');
+  }
+  return data;
+}
+// 對外的主入口:使用者按送出/Enter 都會呼叫這個函式。完全交給 AI 後端判斷客戶想要什麼,
+// 沒有離線關鍵字比對版本。
+async function processChatMessage(text){
+  text = (text||'').trim();
+  if(!text) return;
+  addChatBubble(text, 'user');
+
+  const endpoint = getChatEndpoint();
+  try{
+    const priorHistory = chatHistory.slice();
+    const data = await callAiBackend(endpoint, text, priorHistory);
+    chatHistory.push({role:'user', content:text});
+    chatHistory.push({role:'assistant', content:data.assistantText || ''});
+    if(chatHistory.length > 40) chatHistory = chatHistory.slice(-40);
+
+    mergeAiProfileUpdate(data.profileUpdate);
+    setChatStatus('ok');
+
+    // profileUpdate 這一輪是否真的帶來新資訊(而不是只有 ready_to_generate 這個旗標)。
+    const profileHasNewInfo = !!(data.profileUpdate && Object.keys(data.profileUpdate).some(function(k){
+      const v = data.profileUpdate[k];
+      return k !== 'ready_to_generate' && v !== null && v !== undefined && v !== '';
+    }));
+    const aiSaysReady = !!(data.profileUpdate && data.profileUpdate.ready_to_generate);
+
+    // 還沒生成過:完全信任 AI 判斷的 ready_to_generate 決定何時該產生第一版配置。
+    // 已經生成過一次:只要這輪 AI 有回報任何新資訊就直接重新套用,不再用本地規則
+    // 要求「四個欄位都填齊」才動作——這正是之前對話容易卡在同一題、感覺跳針的主因。
+    // 如果這輪沒有新資訊(客戶只是閒聊、道謝等),就不會無意義地重複套用/重複提示。
+    if((aiSaysReady && !chatProfile.__generated) || (chatProfile.__generated && profileHasNewInfo)){
+      chatMaybeGenerate(data.assistantText || '');
+    } else if(data.assistantText){
+      addChatBubble(data.assistantText, 'bot');
+    } else {
+      addChatBubble('可以再多告訴我一點想法嗎?(例如用途、大概尺寸、喜歡的風格或預算)', 'bot');
+    }
+  } catch(err){
+    console.warn('AI 後端呼叫失敗:', err);
+    setChatStatus('error');
+    addChatBubble('抱歉,現在跟 AI 助手的連線好像出了點問題,可以稍等一下再說一次看看嗎?如果一直失敗,麻煩跟店家反應一下(可能是後端網址或金鑰設定的問題)。', 'bot');
+  }
+}
+function chatReset(){
+  chatProfile = { purposeId:null, W:null, H:null, D:null, mainColor:null, boldStyle:false, budgetId:null, __generated:false };
+  chatHistory = [];
+  document.getElementById('chatMessages').innerHTML = '';
+  setChatStatus();
+  addChatBubble('您好!我是幫您規劃收納櫃的小幫手,用聊天的方式跟我說說需求就可以了,例如「我要一個電視櫃,現代簡約風,預算中等,寬200高150」,或者想到什麼說什麼也沒關係,我會繼續問您細節。', 'bot');
+}
+
+/* ---------- 下拉選單初始化 ---------- */
+function populateColorSelect(sel, includeBlankAsMain){
+  sel.innerHTML='';
+  if(includeBlankAsMain){
+    const opt=document.createElement('option');
+    opt.value=''; opt.textContent='(套用主色)';
+    sel.appendChild(opt);
+  }
+  COLORS.forEach(c=>{
+    const opt=document.createElement('option');
+    opt.value=c.id; opt.textContent=c.name;
+    sel.appendChild(opt);
+  });
+}
+populateColorSelect(document.getElementById('mainColor'), false);
+
+/* ---------- 欄寬設定 ---------- */
+function renderColWidthList(){
+  const wrap=document.getElementById('colWidthList');
+  wrap.innerHTML='';
+  state.cols.forEach((w,i)=>{
+    const div=document.createElement('div');
+    div.className='item';
+    div.innerHTML=`<span>第${i+1}欄</span>`;
+    const sel=document.createElement('select');
+    TIERS.forEach(t=>{
+      const opt=document.createElement('option');
+      opt.value=t; opt.textContent=t+' cm';
+      if(t===w) opt.selected=true;
+      sel.appendChild(opt);
+    });
+    sel.addEventListener('change', ()=>{ state.cols[i]=parseInt(sel.value); renderAll(); });
+    div.appendChild(sel);
+    wrap.appendChild(div);
+  });
+}
+
+/* ---------- 側板 / 頂底板 分段顏色(每一段各自獨立) ---------- */
+function renderSegColorList(containerId, count, labelFn, stateKey){
+  const wrap=document.getElementById(containerId);
+  wrap.innerHTML='';
+  for(let i=0;i<count;i++){
+    const div=document.createElement('div');
+    div.className='item';
+    div.innerHTML=`<span>${labelFn(i)}</span>`;
+    const sel=document.createElement('select');
+    populateColorSelect(sel, true);
+    sel.value = state[stateKey][i] || '';
+    sel.addEventListener('change', ()=>{
+      if(sel.value) state[stateKey][i]=sel.value; else delete state[stateKey][i];
+      renderAll();
+    });
+    div.appendChild(sel);
+    wrap.appendChild(div);
+  }
+}
+function renderAllSegColorLists(){
+  renderSegColorList('leftPanelColorList', state.rows, i=>`第${i+1}層`, 'leftPanelColors');
+  renderSegColorList('rightPanelColorList', state.rows, i=>`第${i+1}層`, 'rightPanelColors');
+  renderSegColorList('topPanelColorList', state.cols.length, i=>`第${i+1}欄`, 'topPanelColors');
+  renderSegColorList('bottomPanelColorList', state.cols.length, i=>`第${i+1}欄`, 'bottomPanelColors');
+}
+
+/* ---------- 外觀輪廓:可點擊格線 ---------- */
+function renderShapeEditor(){
+  const wrap=document.getElementById('shapeEditor');
+  wrap.innerHTML='';
+  wrap.style.gridTemplateColumns = `repeat(${state.cols.length}, 1fr)`;
+  for(let r=state.rows-1; r>=0; r--){
+    for(let c=0;c<state.cols.length;c++){
+      const filled = isFilled(r,c);
+      const btn=document.createElement('button');
+      btn.type='button';
+      btn.textContent = `${r+1}層/${c+1}欄`;
+      btn.style.cssText = 'padding:12px 4px;font-size:11px;border-radius:6px;cursor:pointer;min-height:44px;'
+        + (filled
+          ? 'border:1px solid #1e2f3c;background:#1e2f3c;color:#fff;'
+          : 'border:1px dashed #ccc;background:#f5f5f3;color:#aaa;');
+      btn.addEventListener('click', ()=>{
+        state.mask[r+'_'+c] = !filled;
+        renderAll();
+      });
+      wrap.appendChild(btn);
+    }
+  }
+}
+
+/* ---------- 每格編輯器 ---------- */
+function renderGridEditor(){
+  const wrap=document.getElementById('gridEditor');
+  wrap.innerHTML='';
+  wrap.style.gridTemplateColumns = `repeat(${state.cols.length}, 1fr)`;
+  for(let r=state.rows-1; r>=0; r--){
+    for(let c=0;c<state.cols.length;c++){
+      if(!isFilled(r,c)){
+        const ph=document.createElement('div');
+        ph.className='cellEditor';
+        ph.style.cssText='display:flex;align-items:center;justify-content:center;color:#bbb;font-size:11px;border-style:dashed;background:#f5f5f3;min-height:60px;text-align:center;';
+        ph.textContent = `第${r+1}層/第${c+1}欄(不存在)`;
+        wrap.appendChild(ph);
+        continue;
+      }
+      const cell=getCell(r,c);
+      // 抽屜類暫時停用:若格子先前已設為抽屜,自動還原成開放層
+      if(cell.type.indexOf('drawer')===0) cell.type='open';
+      const box=document.createElement('div');
+      box.className='cellEditor';
+      box.innerHTML=`<div class="lbl">第${r+1}層 / 第${c+1}欄 (${state.cols[c]}cm)</div>`;
+      const typeSel=document.createElement('select');
+      ENABLED_CELL_TYPES.forEach(t=>{
+        const opt=document.createElement('option');
+        opt.value=t.id; opt.textContent=t.name;
+        if(t.id===cell.type) opt.selected=true;
+        typeSel.appendChild(opt);
+      });
+      typeSel.addEventListener('change',()=>{ cell.type=typeSel.value; renderAll(); });
+      box.appendChild(typeSel);
+
+      const curTypeDef = CELL_TYPES.find(t=>t.id===cell.type) || CELL_TYPES[0];
+      if(curTypeDef.category==='glass'){
+        // 玻璃是固定的清玻璃,官方沒有 RAL 上色選項,所以不提供顏色選單,改顯示說明
+        if(cell.color){ cell.color=''; } // 清掉舊資料裡可能殘留的顏色設定
+        const glassNote=document.createElement('div');
+        glassNote.className='lbl';
+        glassNote.style.cssText='color:#a4370f;';
+        glassNote.textContent='玻璃為固定清玻璃,無 RAL 上色選項';
+        box.appendChild(glassNote);
+      } else {
+        const colorLbl=document.createElement('div');
+        colorLbl.className='lbl'; colorLbl.textContent='前方顏色(門片/面板)';
+        box.appendChild(colorLbl);
+        const colorSel=document.createElement('select');
+        populateColorSelect(colorSel, true);
+        colorSel.value = cell.color || '';
+        colorSel.addEventListener('change',()=>{ cell.color=colorSel.value; renderAll(); });
+        box.appendChild(colorSel);
+      }
+
+      const shelfLbl=document.createElement('div');
+      shelfLbl.className='lbl'; shelfLbl.textContent='層板顏色(此格獨立)';
+      box.appendChild(shelfLbl);
+      const shelfSel=document.createElement('select');
+      populateColorSelect(shelfSel, true);
+      const shelfKey = r+'_'+c;
+      shelfSel.value = state.shelfColors[shelfKey] || '';
+      shelfSel.addEventListener('change',()=>{
+        if(shelfSel.value) state.shelfColors[shelfKey]=shelfSel.value; else delete state.shelfColors[shelfKey];
+        renderAll();
+      });
+      box.appendChild(shelfSel);
+
+      // 背板:此格是否要加背板(每格獨立可選)
+      const backKey = r+'_'+c;
+      const backLine = document.createElement('div');
+      backLine.className='checkline';
+      const backChk = document.createElement('input');
+      backChk.type='checkbox'; backChk.checked = !!state.backPanels[backKey];
+      backChk.addEventListener('change',()=>{
+        if(backChk.checked) state.backPanels[backKey]=true; else delete state.backPanels[backKey];
+        renderAll();
+      });
+      const backChkLbl = document.createElement('label');
+      backChkLbl.style.margin='0'; backChkLbl.textContent='背板';
+      backLine.appendChild(backChk); backLine.appendChild(backChkLbl);
+      box.appendChild(backLine);
+
+      // 右側隔板:此欄與下一欄之間(每層獨立)可選是否加裝直立隔板+顏色。
+      // 最後一欄右邊已經是側板,不需要再加隔板。即使右邊那格被移除了也還是可以加
+      // (效果等於幫這一格的右邊加一片封邊板)。
+      if(c < state.cols.length-1){
+        const div = getDivider(r,c);
+        const dividerLbl=document.createElement('div');
+        dividerLbl.className='lbl';
+        dividerLbl.textContent = isFilled(r,c+1) ? '右側隔板(此格與下一欄之間)' : '右側隔板(右邊那格已移除,可當封邊板)';
+        box.appendChild(dividerLbl);
+        const dividerLine = document.createElement('div');
+        dividerLine.className='checkline';
+        const dividerChk = document.createElement('input');
+        dividerChk.type='checkbox'; dividerChk.checked = !!div.enabled;
+        dividerChk.addEventListener('change',()=>{ div.enabled=dividerChk.checked; renderAll(); });
+        const dividerChkLbl = document.createElement('label');
+        dividerChkLbl.style.margin='0'; dividerChkLbl.textContent='加隔板';
+        dividerLine.appendChild(dividerChk); dividerLine.appendChild(dividerChkLbl);
+        box.appendChild(dividerLine);
+        const dividerColorSel = document.createElement('select');
+        populateColorSelect(dividerColorSel, true);
+        dividerColorSel.value = div.color || '';
+        dividerColorSel.addEventListener('change',()=>{ div.color=dividerColorSel.value; renderAll(); });
+        box.appendChild(dividerColorSel);
+      }
+
+      // 左側隔板:只有在「左邊那格已被移除」時才顯示這個控制項(正常情況下這個邊界
+      // 已經由左邊那格的「右側隔板」控制過了,這裡重複顯示只會讓人混淆)。
+      // 這樣不管移除的是左邊還是右邊那一格,使用者永遠能從還存在的那一格控制隔板。
+      if(c > 0 && !isFilled(r,c-1)){
+        const divL = getDivider(r,c-1);
+        const dividerLblL=document.createElement('div');
+        dividerLblL.className='lbl'; dividerLblL.textContent='左側隔板(左邊那格已移除,可當封邊板)';
+        box.appendChild(dividerLblL);
+        const dividerLineL = document.createElement('div');
+        dividerLineL.className='checkline';
+        const dividerChkL = document.createElement('input');
+        dividerChkL.type='checkbox'; dividerChkL.checked = !!divL.enabled;
+        dividerChkL.addEventListener('change',()=>{ divL.enabled=dividerChkL.checked; renderAll(); });
+        const dividerChkLblL = document.createElement('label');
+        dividerChkLblL.style.margin='0'; dividerChkLblL.textContent='加隔板';
+        dividerLineL.appendChild(dividerChkL); dividerLineL.appendChild(dividerChkLblL);
+        box.appendChild(dividerLineL);
+        const dividerColorSelL = document.createElement('select');
+        populateColorSelect(dividerColorSelL, true);
+        dividerColorSelL.value = divL.color || '';
+        dividerColorSelL.addEventListener('change',()=>{ divL.color=dividerColorSelL.value; renderAll(); });
+        box.appendChild(dividerColorSelL);
+      }
+
+      wrap.appendChild(box);
+    }
+  }
+}
+
+/* ---------- 單價表 ---------- */
+function renderPriceTables(){
+  const wrap=document.getElementById('priceTables');
+  wrap.innerHTML='';
+
+  const t1=document.createElement('table');
+  t1.innerHTML=`<thead><tr><th class="rowlabel">結構五金</th><th>單價</th></tr></thead>`;
+  const tb1=document.createElement('tbody');
+  const trBall=document.createElement('tr');
+  trBall.innerHTML=`<td class="rowlabel">球接頭(每顆)</td><td></td>`;
+  const ballInput=document.createElement('input');
+  ballInput.type='number'; ballInput.value=state.prices.ball;
+  ballInput.addEventListener('input',()=>{ state.prices.ball=parseFloat(ballInput.value)||0; recompute(); saveState(); });
+  trBall.children[1].appendChild(ballInput);
+  tb1.appendChild(trBall);
+  TIERS.forEach(t=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td class="rowlabel">連接管 ${t}cm(每支)</td><td></td>`;
+    const inp=document.createElement('input');
+    inp.type='number'; inp.value=state.prices.tube[t];
+    inp.addEventListener('input',()=>{ state.prices.tube[t]=parseFloat(inp.value)||0; recompute(); saveState(); });
+    tr.children[1].appendChild(inp);
+    tb1.appendChild(tr);
+  });
+  t1.appendChild(tb1);
+  wrap.appendChild(t1);
+  wrap.appendChild(document.createElement('div')).style.height='10px';
+
+  const t2=document.createElement('table');
+  t2.innerHTML=`<thead><tr><th class="rowlabel">面板 / 門片(依寬度分級)</th><th>35cm</th><th>50cm</th><th>75cm</th></tr></thead>`;
+  const tb2=document.createElement('tbody');
+  CELL_TYPES.filter(t=>t.kind==='tiered' && !t.fixedZero).forEach(t=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td class="rowlabel">${t.name}</td><td></td><td></td><td></td>`;
+    TIERS.forEach((tier,idx)=>{
+      const inp=document.createElement('input');
+      inp.type='number'; inp.value=state.prices[t.id][tier];
+      inp.addEventListener('input',()=>{ state.prices[t.id][tier]=parseFloat(inp.value)||0; recompute(); saveState(); });
+      tr.children[idx+1].appendChild(inp);
+    });
+    tb2.appendChild(tr);
+  });
+  t2.appendChild(tb2);
+  wrap.appendChild(t2);
+  wrap.appendChild(document.createElement('div')).style.height='10px';
+
+  // 抽屜類單價表:抽屜功能暫時停用中,此表格先隱藏(價格資料仍保留,之後重新開放抽屜時會自動出現)
+  const flatTypes = ENABLED_CELL_TYPES.filter(t=>t.kind==='flat');
+  if(flatTypes.length){
+    const t3=document.createElement('table');
+    t3.innerHTML=`<thead><tr><th class="rowlabel">抽屜類(固定單價,不分寬度)</th><th>單價</th></tr></thead>`;
+    const tb3=document.createElement('tbody');
+    flatTypes.forEach(t=>{
+      const tr=document.createElement('tr');
+      tr.innerHTML=`<td class="rowlabel">${t.name}</td><td></td>`;
+      const inp=document.createElement('input');
+      inp.type='number'; inp.value=state.prices[t.id];
+      inp.addEventListener('input',()=>{ state.prices[t.id]=parseFloat(inp.value)||0; recompute(); saveState(); });
+      tr.children[1].appendChild(inp);
+      tb3.appendChild(tr);
+    });
+    t3.appendChild(tb3);
+    wrap.appendChild(t3);
+  }
+}
+
+/* =========================================================
+   3D 渲染引擎(依官方規格比例:球徑20mm→半徑1cm;
+   連接管直徑12.7mm→半徑0.635cm;面板厚度以視覺近似值 1.6cm 呈現;
+   面板刻意內縮,讓球接頭在視覺上「凸出」面板,符合實際外觀特徵)
+   ========================================================= */
+let three = null;
+
+function initThree(){
+  const wrap = document.getElementById('canvasWrap');
+  const W = wrap.clientWidth || 640, H = wrap.clientHeight || 480;
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(35, W/H, 1, 5000);
+  const renderer = new THREE.WebGLRenderer({antialias:true, alpha:true});
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio||1, 2));
+  renderer.setSize(W, H);
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  wrap.appendChild(renderer.domElement);
+
+  const hemi = new THREE.HemisphereLight(0xffffff, 0x55504a, 0.9);
+  scene.add(hemi);
+  const key = new THREE.DirectionalLight(0xffffff, 0.95);
+  key.position.set(120, 200, 160);
+  key.castShadow = true;
+  key.shadow.mapSize.set(1024,1024);
+  key.shadow.camera.left=-200; key.shadow.camera.right=200;
+  key.shadow.camera.top=200; key.shadow.camera.bottom=-200;
+  key.shadow.camera.near=10; key.shadow.camera.far=800;
+  scene.add(key);
+  const fill = new THREE.DirectionalLight(0xffffff, 0.32);
+  fill.position.set(-150, 80, -100);
+  scene.add(fill);
+
+  const group = new THREE.Group();
+  scene.add(group);
+
+  const groundGeom = new THREE.PlaneGeometry(3000,3000);
+  const groundMat = new THREE.ShadowMaterial({opacity:0.26});
+  const ground = new THREE.Mesh(groundGeom, groundMat);
+  ground.rotation.x = -Math.PI/2;
+  ground.receiveShadow = true;
+  scene.add(ground);
+
+  let radius = 300, azimuth = Math.PI/4.2, elevation = 0.55;
+  function updateCamera(){
+    camera.position.set(
+      radius*Math.cos(elevation)*Math.sin(azimuth),
+      radius*Math.sin(elevation),
+      radius*Math.cos(elevation)*Math.cos(azimuth)
+    );
+    camera.lookAt(0,0,0);
+  }
+  updateCamera();
+
+  let dragging=false, lastX=0, lastY=0;
+  renderer.domElement.addEventListener('pointerdown', e=>{ dragging=true; lastX=e.clientX; lastY=e.clientY; wrap.style.cursor='grabbing'; });
+  window.addEventListener('pointerup', ()=>{ dragging=false; wrap.style.cursor='grab'; });
+  window.addEventListener('pointermove', e=>{
+    if(!dragging) return;
+    const dx=e.clientX-lastX, dy=e.clientY-lastY;
+    lastX=e.clientX; lastY=e.clientY;
+    azimuth -= dx*0.008;
+    elevation = Math.max(0.08, Math.min(1.3, elevation+dy*0.006));
+    updateCamera();
+  });
+  renderer.domElement.addEventListener('wheel', e=>{
+    e.preventDefault();
+    radius = Math.max(30, Math.min(1500, radius*(e.deltaY>0?1.08:0.92)));
+    updateCamera();
+  }, {passive:false});
+
+  window.addEventListener('resize', ()=>{
+    const w = wrap.clientWidth || W;
+    const h = wrap.clientHeight || H;
+    renderer.setSize(w, h);
+    camera.aspect = w/h;
+    camera.updateProjectionMatrix();
+  });
+
+  function render(){ requestAnimationFrame(render); renderer.render(scene, camera); }
+  render();
+
+  three = { scene, camera, renderer, group, ground, setRadius:(r)=>{ radius=r; updateCamera(); } };
+}
+
+function disposeGroupChildren(group){
+  while(group.children.length){
+    const obj = group.children.pop();
+    if(obj.geometry) obj.geometry.dispose();
+    if(obj.material){
+      if(Array.isArray(obj.material)) obj.material.forEach(m=>m.dispose());
+      else obj.material.dispose();
+    }
+  }
+}
+
+function rebuild3D(){
+  if(!three) return;
+  const group = three.group;
+  disposeGroupChildren(group);
+
+  const cols = state.cols, M = state.rows, H_ = state.rowHeight, D = state.depth;
+  const N = cols.length;
+  const colOffsets = [0];
+  for(let i=0;i<N;i++) colOffsets.push(colOffsets[i]+cols[i]);
+  const totalWidth = colOffsets[N];
+  const totalHeight = M*H_;
+
+  // 依 USM 官方規格:球徑20mm(半徑1cm)、連接管直徑12.7mm(半徑0.635cm)
+  const ballR = 1.0, tubeR = 0.635;
+  const metalMat = new THREE.MeshStandardMaterial({color:0xC9CDD0, metalness:0.92, roughness:0.22});
+
+  function addBall(x,y,z){
+    const g = new THREE.SphereGeometry(ballR, 16, 16);
+    const m = new THREE.Mesh(g, metalMat);
+    m.position.set(x,y,z); m.castShadow = true;
+    group.add(m);
+  }
+  function addTubeX(x0,x1,y,z){
+    const g = new THREE.CylinderGeometry(tubeR, tubeR, x1-x0, 10);
+    g.rotateZ(Math.PI/2);
+    const m = new THREE.Mesh(g, metalMat);
+    m.position.set((x0+x1)/2, y, z); m.castShadow = true;
+    group.add(m);
+  }
+  function addTubeY(x,y0,y1,z){
+    const g = new THREE.CylinderGeometry(tubeR, tubeR, y1-y0, 10);
+    const m = new THREE.Mesh(g, metalMat);
+    m.position.set(x, (y0+y1)/2, z); m.castShadow = true;
+    group.add(m);
+  }
+  function addTubeZ(x,y,z0,z1){
+    const g = new THREE.CylinderGeometry(tubeR, tubeR, Math.abs(z1-z0), 10);
+    g.rotateX(Math.PI/2);
+    const m = new THREE.Mesh(g, metalMat);
+    m.position.set(x, y, (z0+z1)/2); m.castShadow = true;
+    group.add(m);
+  }
+
+  // 依「外觀輪廓」只在實際有格子的地方產生球接頭/連接管(支援左右不同高度的階梯造型;
+  // 兩個相鄰欄高度不同時,共用的那支直柱會沿著較高欄的高度往上延伸)
+  const frame = computeFrameSets();
+  for(let zi=0; zi<2; zi++){
+    const z = zi===0 ? 0 : -D;
+    frame.points.forEach(key=>{ const p=key.split('_'); addBall(colOffsets[+p[0]], (+p[1])*H_, z); });
+    frame.hTubes.forEach(key=>{ const p=key.split('_'); const c=+p[0], r=+p[1]; addTubeX(colOffsets[c], colOffsets[c+1], r*H_, z); });
+    frame.vTubes.forEach(key=>{ const p=key.split('_'); const c=+p[0], r=+p[1]; addTubeY(colOffsets[c], r*H_, (r+1)*H_, z); });
+  }
+  frame.points.forEach(key=>{ const p=key.split('_'); addTubeZ(colOffsets[+p[0]], (+p[1])*H_, 0, -D); });
+
+  // 面板/門/抽屜:內縮於球心平面之後,讓球接頭凸出面板表面(貼近實際外觀)
+  const GAP = 0.5;
+  const recess = ballR * 0.6; // 面板前緣退到球心後方
+  for(let r=0;r<M;r++){
+    for(let c=0;c<N;c++){
+      if(!isFilled(r,c)) continue; // 這一格在「外觀輪廓」被移除了,整格都不畫
+
+      const cell = getCell(r,c);
+      const x0=colOffsets[c], x1=colOffsets[c+1];
+      const y0=r*H_, y1=(r+1)*H_;
+      const w=(x1-x0)-GAP*2, h=(y1-y0)-GAP*2;
+      const cx=(x0+x1)/2, cy=(y0+y1)/2;
+      const typeDef = CELL_TYPES.find(t=>t.id===cell.type) || CELL_TYPES[0];
+      const colorId = cell.color || state.mainColor;
+      const hex = colorHex(colorId);
+
+      // 結構層板:每一格底部都存在(不論前方是開放/門片/抽屜,層板都是結構件,
+      // 不會因為換了門片款式就消失);顏色可依「每層」個別指定,不指定則跟隨主色
+      const shelfGeom = new THREE.BoxGeometry(w, 0.6, D-2);
+      const shelfMat = new THREE.MeshStandardMaterial({color:new THREE.Color(colorHex(getShelfColor(r,c))), metalness:0.2, roughness:0.6});
+      const shelf = new THREE.Mesh(shelfGeom, shelfMat);
+      shelf.position.set(cx, y0+0.4, -D/2);
+      shelf.castShadow = true; shelf.receiveShadow = true;
+      group.add(shelf);
+
+      // 背板:每一格可獨立勾選是否要背板,勾選的格子背面才會加一片封閉板,顏色跟隨該格前方顏色設定
+      if(getBackPanel(r,c)){
+        const backThick = 1.2;
+        const backMat = new THREE.MeshStandardMaterial({color:new THREE.Color(hex), metalness:0.35, roughness:0.55});
+        const backGeom = new THREE.BoxGeometry(w, h, backThick);
+        const backMesh = new THREE.Mesh(backGeom, backMat);
+        backMesh.position.set(cx, cy, -D+recess+backThick/2);
+        backMesh.castShadow = true; backMesh.receiveShadow = true;
+        group.add(backMesh);
+      }
+
+      if(typeDef.category==='open'){
+        continue;
+      }
+
+      if(typeDef.category==='drawer'){
+        // 實測 USM 官方線上配置器後修正:抽屜/抽拉層板實際上是懸吊在「該格上方」的
+        // 淺薄滑軌托盤,並非填滿整格高度的深色抽屜面板。下方維持開放(底部層板已加好),
+        // 這裡只加托盤本體+兩側滑軌五金,貼近實際外觀。
+        const trayH = Math.max(h*0.16, 3);
+        const trayY = y1 - trayH/2 - 0.6;
+        const trayGeom = new THREE.BoxGeometry(w, trayH, D-4);
+        const trayMat = new THREE.MeshStandardMaterial({color:new THREE.Color(hex), metalness:0.3, roughness:0.5});
+        const tray = new THREE.Mesh(trayGeom, trayMat);
+        tray.position.set(cx, trayY, -D/2+1);
+        tray.castShadow = true; tray.receiveShadow = true;
+        group.add(tray);
+
+        // 兩側滑軌五金(小型鉻色托架,對應官網示意圖看到的滑軌支架)
+        const railMat = new THREE.MeshStandardMaterial({color:0xC9CDD0, metalness:0.8, roughness:0.3});
+        [x0+1.2, x1-1.2].forEach(rx=>{
+          const railGeom = new THREE.BoxGeometry(0.8, trayH*0.8, D-4);
+          const rail = new THREE.Mesh(railGeom, railMat);
+          rail.position.set(rx, trayY, -D/2+1);
+          rail.castShadow = true;
+          group.add(rail);
+        });
+        continue;
+      }
+
+      const thickness = 1.6;
+      const isAcoustic = cell.type.indexOf('acoustic') !== -1;
+      let mat;
+      if(typeDef.category==='glass'){
+        // 玻璃實際上是固定的透明(或霧面)強化玻璃,官方並不提供 RAL 上色選項,
+        // 所以這裡固定用近乎無色的清玻璃色調渲染,不採用使用者選的面板顏色。
+        mat = new THREE.MeshPhysicalMaterial({color:new THREE.Color(GLASS_TINT_HEX), transparent:true, opacity:0.28, roughness:0.05, metalness:0.05, side:THREE.DoubleSide});
+      } else if(isAcoustic){
+        // 隔音材質為布面/軟質感,較不反光,金屬感低、粗糙度高
+        mat = new THREE.MeshStandardMaterial({color:new THREE.Color(hex), metalness:0.05, roughness:0.9});
+      } else {
+        mat = new THREE.MeshStandardMaterial({color:new THREE.Color(hex), metalness:0.35, roughness:0.55});
+      }
+      const geom = new THREE.BoxGeometry(w, h, thickness);
+      const mesh = new THREE.Mesh(geom, mat);
+      mesh.position.set(cx, cy, -recess-thickness/2);
+      mesh.castShadow = true; mesh.receiveShadow = true;
+      group.add(mesh);
+
+      // 門片把手:實測官方配置器後修正,門片一律是圓形旋鈕把手(跟抽屜托盤五金同一系列),
+      // 不是溝線。掀門(鉸鏈在下、往上掀開)把手在門片上方;下掀門(鉸鏈在上、往下掀開)
+      // 把手在門片下方。伸縮門暫時比照掀門處理(上方把手)。
+      const TOP_HANDLE_DOORS = ['door_flip_metal','door_glass','door_extension_metal'];
+      const BOTTOM_HANDLE_DOORS = ['door_dropdown_metal','door_dropdown_acoustic'];
+      if(TOP_HANDLE_DOORS.indexOf(cell.type)!==-1 || BOTTOM_HANDLE_DOORS.indexOf(cell.type)!==-1){
+        const knobGeom = new THREE.CylinderGeometry(1.1, 1.1, 0.8, 20);
+        knobGeom.rotateX(Math.PI/2);
+        const knobMat = new THREE.MeshStandardMaterial({color:0xC9CDD0, metalness:0.85, roughness:0.25});
+        const knob = new THREE.Mesh(knobGeom, knobMat);
+        const knobY = TOP_HANDLE_DOORS.indexOf(cell.type)!==-1 ? (y0+h*0.82) : (y0+h*0.18);
+        knob.position.set(cx, knobY, -recess+0.4);
+        knob.castShadow = true;
+        group.add(knob);
+      }
+    }
+  }
+
+  // 格間直立隔板(對應官方 Metal/Glass divider shelf):每一層、每個相鄰欄之間可選擇是否加裝,
+  // 位置在該欄界線上,寬度跟側板一樣是薄片,高度為該層層高,顏色可個別指定。
+  const dividerThick = 1.2;
+  for(let r=0;r<M;r++){
+    for(let b=0;b<N-1;b++){
+      const div = getDivider(r,b);
+      if(!div.enabled) continue;
+      // 只要有一側的格子存在就有意義(可以當作那一側的封邊板),兩側都不存在才跳過
+      if(!isFilled(r,b) && !isFilled(r,b+1)) continue;
+      const ry0=r*H_, ry1=(r+1)*H_;
+      const bx = colOffsets[b+1];
+      const dMat = new THREE.MeshStandardMaterial({color:new THREE.Color(colorHex(getDividerColor(r,b))), metalness:0.35, roughness:0.55});
+      const dGeom = new THREE.BoxGeometry(dividerThick, (ry1-ry0)-GAP*2, D-2);
+      const dMesh = new THREE.Mesh(dGeom, dMat);
+      dMesh.position.set(bx, (ry0+ry1)/2, -D/2);
+      dMesh.castShadow=true; dMesh.receiveShadow=true;
+      group.add(dMesh);
+    }
+  }
+
+  // 側板 / 頂板 / 底板(每一段都可獨立指定顏色,不指定則跟隨主色)
+  const sideThick = 1.2;
+  function segMat(map, key){
+    return new THREE.MeshStandardMaterial({color:new THREE.Color(colorHex(getSegColor(map, key))), metalness:0.35, roughness:0.55});
+  }
+  // 側板:依層數分成獨立小片(對應每層各自一片,與BOM算法一致,顏色也各自獨立),
+  // 每片之間留縫隙,讓橫向的球接頭/連接管框架露出來。
+  // 面板往內縮(flush):外緣跟框架切齊、不凸出框架之外,球接頭仍會在面板外緣露出一點點。
+  if(state.leftPanel){
+    for(let r=0;r<M;r++){
+      if(!isFilled(r,0)) continue; // 該層第一欄不存在,左側板無附著處
+      const ry0=r*H_, ry1=(r+1)*H_;
+      const g = new THREE.BoxGeometry(sideThick, (ry1-ry0)-GAP*2, D-2);
+      const m = new THREE.Mesh(g, segMat('leftPanelColors', r));
+      m.position.set(-sideThick/2+recess, (ry0+ry1)/2, -D/2);
+      m.castShadow=true; m.receiveShadow=true;
+      group.add(m);
+    }
+  }
+  if(state.rightPanel){
+    for(let r=0;r<M;r++){
+      if(!isFilled(r,N-1)) continue; // 該層最後一欄不存在,右側板無附著處
+      const ry0=r*H_, ry1=(r+1)*H_;
+      const g = new THREE.BoxGeometry(sideThick, (ry1-ry0)-GAP*2, D-2);
+      const m = new THREE.Mesh(g, segMat('rightPanelColors', r));
+      m.position.set(totalWidth+sideThick/2-recess, (ry0+ry1)/2, -D/2);
+      m.castShadow=true; m.receiveShadow=true;
+      group.add(m);
+    }
+  }
+  // 頂板/底板:依欄數分成獨立小片(對應每欄各自一片,與BOM算法一致,顏色也各自獨立),
+  // 每片之間留縫隙,讓中間直向的支架露出來;同樣往內縮,與框架切齊不凸出。
+  // 不規則外觀下,頂/底板改為跟隨「每一欄實際最高/最低存在的那一層」,而非整櫃統一高度。
+  if(state.topPanel){
+    cols.forEach((cw,i)=>{
+      const topRow = colTopRow(i);
+      if(topRow===-1) return; // 整欄都不存在
+      const colTopY = (topRow+1)*H_;
+      const cx0=colOffsets[i], cx1=colOffsets[i+1];
+      const g = new THREE.BoxGeometry((cx1-cx0)-GAP*2, sideThick, D-2);
+      const m = new THREE.Mesh(g, segMat('topPanelColors', i));
+      m.position.set((cx0+cx1)/2, colTopY+sideThick/2-recess, -D/2);
+      m.castShadow=true; m.receiveShadow=true;
+      group.add(m);
+    });
+  }
+  if(state.bottomPanel){
+    cols.forEach((cw,i)=>{
+      const bottomRow = colBottomRow(i);
+      if(bottomRow===-1) return; // 整欄都不存在
+      const colBottomY = bottomRow*H_;
+      const cx0=colOffsets[i], cx1=colOffsets[i+1];
+      const g = new THREE.BoxGeometry((cx1-cx0)-GAP*2, sideThick, D-2);
+      const m = new THREE.Mesh(g, segMat('bottomPanelColors', i));
+      m.position.set((cx0+cx1)/2, colBottomY-sideThick/2+recess, -D/2);
+      m.castShadow=true; m.receiveShadow=true;
+      group.add(m);
+    });
+  }
+
+  group.position.set(-totalWidth/2, -totalHeight/2, D/2);
+  three.ground.position.y = -totalHeight/2;
+
+  const diag = Math.sqrt(totalWidth*totalWidth + totalHeight*totalHeight + D*D);
+  three.setRadius(diag*0.9 + 25);
+
+  document.getElementById('dimsSummary').textContent =
+    `總寬 ${totalWidth}cm × 總高 ${totalHeight}cm × 深度 ${D}cm　主色:${colorName(state.mainColor)}`;
+}
+
+/* ---------- BOM 與報價計算 ---------- */
+function recompute(){
+  const N = state.cols.length;
+  const M = state.rows;
+  const H = state.rowHeight;
+  const D = state.depth;
+
+  const bom = [];
+  let grand = 0;
+  const warnings = [];
+
+  // 球接頭/連接管數量改為與 3D 實際生成的框架完全一致(computeFrameSets),
+  // 不規則外觀下,消失的格子其周邊多餘的框架也會自動不列入計算。
+  const frame = computeFrameSets();
+  const balls = frame.points.size*2;
+  const ballSub = balls*state.prices.ball;
+  bom.push({label:'球接頭', spec:'—', qty:balls, unit:state.prices.ball, subtotal:ballSub});
+  grand += ballSub;
+
+  const tubeTally = {35:0,50:0,75:0};
+  frame.hTubes.forEach(key=>{
+    const p = key.split('_'); const c = +p[0];
+    tubeTally[state.cols[c]] += 2; // 前+後各一根
+  });
+  tubeTally[H] += frame.vTubes.size*2;
+  tubeTally[D] += frame.points.size;
+  TIERS.forEach(t=>{
+    if(tubeTally[t]>0){
+      const sub = tubeTally[t]*state.prices.tube[t];
+      bom.push({label:'連接管', spec:t+'cm', qty:tubeTally[t], unit:state.prices.tube[t], subtotal:sub});
+      grand += sub;
+    }
+  });
+
+  const panelFixedPrice = state.prices['panel_fixed'];
+  if(state.leftPanel){
+    let qty=0; for(let r=0;r<M;r++){ if(isFilled(r,0)) qty++; }
+    if(qty>0){ const sub=qty*panelFixedPrice[H]; bom.push({label:'左側板', spec:H+'cm(每層1片)', qty, unit:panelFixedPrice[H], subtotal:sub}); grand+=sub; }
+  }
+  if(state.rightPanel){
+    let qty=0; for(let r=0;r<M;r++){ if(isFilled(r,N-1)) qty++; }
+    if(qty>0){ const sub=qty*panelFixedPrice[H]; bom.push({label:'右側板', spec:H+'cm(每層1片)', qty, unit:panelFixedPrice[H], subtotal:sub}); grand+=sub; }
+  }
+  if(state.topPanel){
+    state.cols.forEach((w,i)=>{
+      if(colTopRow(i)===-1) return;
+      const sub=panelFixedPrice[w]; bom.push({label:'頂板', spec:`第${i+1}欄 ${w}cm`, qty:1, unit:panelFixedPrice[w], subtotal:sub}); grand+=sub;
+    });
+  }
+  if(state.bottomPanel){
+    state.cols.forEach((w,i)=>{
+      if(colBottomRow(i)===-1) return;
+      const sub=panelFixedPrice[w]; bom.push({label:'底板', spec:`第${i+1}欄 ${w}cm`, qty:1, unit:panelFixedPrice[w], subtotal:sub}); grand+=sub;
+    });
+  }
+  // 背板:每格獨立勾選,依欄寬分組列出(只計算勾選且格子存在的)
+  {
+    const backTally = {};
+    for(let r=0;r<M;r++){
+      for(let c=0;c<N;c++){
+        if(!isFilled(r,c)) continue;
+        if(!getBackPanel(r,c)) continue;
+        const w = state.cols[c];
+        backTally[w] = (backTally[w]||0)+1;
+      }
+    }
+    Object.keys(backTally).forEach(w=>{
+      const qty = backTally[w];
+      const sub = qty*panelFixedPrice[w];
+      bom.push({label:'背板', spec:`${w}cm(每格1片)`, qty, unit:panelFixedPrice[w], subtotal:sub});
+      grand += sub;
+    });
+  }
+
+  // 格間直立隔板(兩側都要存在才有意義)
+  let dividerCount = 0, dividerSub = 0;
+  for(let r=0;r<M;r++){
+    for(let b=0;b<N-1;b++){
+      const d = getDivider(r,b);
+      if(d.enabled && (isFilled(r,b) || isFilled(r,b+1))){ dividerCount++; dividerSub += panelFixedPrice[H]; }
+    }
+  }
+  if(dividerCount>0){
+    bom.push({label:'格間隔板', spec:H+'cm(依所在層高)', qty:dividerCount, unit:panelFixedPrice[H], subtotal:dividerSub});
+    grand += dividerSub;
+  }
+
+  const cellCount = {};
+  for(let r=0;r<M;r++){
+    for(let c=0;c<N;c++){
+      if(!isFilled(r,c)) continue; // 這一格不存在,不計入BOM
+      const cell = getCell(r,c);
+      if(cell.type==='open') continue;
+      const w = state.cols[c];
+      const typeDef = CELL_TYPES.find(t=>t.id===cell.type);
+      let unit;
+      if(typeDef.kind==='tiered'){
+        unit = state.prices[cell.type][w];
+      } else {
+        unit = state.prices[cell.type];
+        if(D!==50) warnings.push(`第${r+1}層/第${c+1}欄 選用${typeDef.name},但目前深度為${D}cm(官方規格建議深度50cm),請與 USM 確認相容性。`);
+      }
+      const key = cell.type+'_'+w;
+      if(!cellCount[key]) cellCount[key] = {label:typeDef.name, spec:w+'cm', qty:0, unit:unit, subtotal:0};
+      cellCount[key].qty += 1;
+      cellCount[key].subtotal += unit;
+    }
+  }
+  Object.values(cellCount).forEach(item=>{ bom.push(item); grand += item.subtotal; });
+
+  const tbody = document.querySelector('#bomTable tbody');
+  tbody.innerHTML='';
+  bom.forEach(item=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML = `<td class="rowlabel">${item.label}</td><td>${item.spec}</td><td>${item.qty}</td><td>${item.unit.toLocaleString()}</td><td>${item.subtotal.toLocaleString()}</td>`;
+    tbody.appendChild(tr);
+  });
+  document.getElementById('grandTotal').textContent = `總計:NT$ ${Math.round(grand).toLocaleString()}(未稅,依實際單價設定為準)`;
+  document.getElementById('warnBox').innerHTML = warnings.length ? ('⚠ ' + warnings.join('<br>⚠ ')) : '';
+}
+
+/* ---------- 控制項綁定 ---------- */
+function bindTopControls(){
+  document.getElementById('colsCount').addEventListener('change', e=>{
+    let n = Math.max(1, Math.min(8, parseInt(e.target.value)||1));
+    e.target.value = n;
+    while(state.cols.length < n) state.cols.push(75);
+    while(state.cols.length > n) state.cols.pop();
+    renderAll();
+  });
+  document.getElementById('rowsCount').addEventListener('change', e=>{
+    let n = Math.max(1, Math.min(6, parseInt(e.target.value)||1));
+    e.target.value = n;
+    state.rows = n;
+    renderAll();
+  });
+  document.getElementById('rowHeight').addEventListener('change', e=>{ state.rowHeight=parseInt(e.target.value); renderAll(); });
+  document.getElementById('depth').addEventListener('change', e=>{ state.depth=parseInt(e.target.value); renderAll(); });
+  document.getElementById('mainColor').addEventListener('change', e=>{ state.mainColor=e.target.value; renderAll(); });
+  ['leftPanel','rightPanel','topPanel','bottomPanel'].forEach(id=>{
+    document.getElementById(id).addEventListener('change', e=>{ state[id]=e.target.checked; renderAll(); });
+  });
+}
+function syncTopControlsFromState(){
+  document.getElementById('colsCount').value = state.cols.length;
+  document.getElementById('rowsCount').value = state.rows;
+  document.getElementById('rowHeight').value = state.rowHeight;
+  document.getElementById('depth').value = state.depth;
+  document.getElementById('mainColor').value = state.mainColor;
+  document.getElementById('leftPanel').checked = state.leftPanel;
+  document.getElementById('rightPanel').checked = state.rightPanel;
+  document.getElementById('topPanel').checked = state.topPanel;
+  document.getElementById('bottomPanel').checked = state.bottomPanel;
+}
+
+/* ---------- 匯出/匯入 JSON ---------- */
+document.getElementById('exportJson').addEventListener('click', ()=>{
+  const blob = new Blob([JSON.stringify(state, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'usm_configurator_setting.json';
+  a.click();
+  URL.revokeObjectURL(url);
+});
+document.getElementById('importJsonBtn').addEventListener('click', ()=> document.getElementById('importJsonFile').click());
+document.getElementById('importJsonFile').addEventListener('change', e=>{
+  const file = e.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = evt=>{
+    try{
+      state = Object.assign(state, JSON.parse(evt.target.result));
+      syncTopControlsFromState();
+      renderAll();
+      saveState();
+    }catch(err){ alert('匯入失敗,檔案格式不正確'); }
+  };
+  reader.readAsText(file);
+});
+document.getElementById('resetPrices').addEventListener('click', ()=>{
+  if(!confirm('確定要將所有單價歸零嗎?')) return;
+  state.prices.ball = 0;
+  TIERS.forEach(t=> state.prices.tube[t]=0 );
+  CELL_TYPES.forEach(t=>{
+    if(t.kind==='tiered') state.prices[t.id] = {35:0,50:0,75:0};
+    else state.prices[t.id] = 0;
+  });
+  renderAll(); saveState();
+});
+document.getElementById('printBtn').addEventListener('click', ()=> window.print());
+function chatSend(){
+  const inp = document.getElementById('chatInput');
+  const text = inp.value;
+  inp.value = '';
+  processChatMessage(text);
+}
+document.getElementById('chatSendBtn').addEventListener('click', chatSend);
+document.getElementById('chatInput').addEventListener('keydown', e=>{
+  if(e.key==='Enter'){ e.preventDefault(); chatSend(); }
+});
+document.getElementById('chatResetBtn').addEventListener('click', chatReset);
+document.getElementById('chatEndpointInput').addEventListener('change', e=>{
+  setChatEndpointStored(e.target.value);
+  setChatStatus();
+});
+document.getElementById('chatAdminToggle').addEventListener('click', ()=>{
+  const panel = document.getElementById('chatAdminPanel');
+  panel.style.display = (panel.style.display==='none') ? '' : 'none';
+});
+
+/* ---------- 總渲染 ---------- */
+function renderAll(){
+  renderColWidthList();
+  renderAllSegColorLists();
+  renderShapeEditor();
+  renderGridEditor();
+  renderPriceTables();
+  rebuild3D();
+  recompute();
+  saveState();
+}
+
+/* ---------- 啟動 ---------- */
+loadState();
+document.getElementById('quoteDate').value = new Date().toISOString().slice(0,10);
+bindTopControls();
+syncTopControlsFromState();
+initThree();
+renderAll();
+document.getElementById('chatEndpointInput').value = getChatEndpoint();
+setChatStatus();
+addChatBubble('您好!我是幫您規劃收納櫃的小幫手,用聊天的方式跟我說說需求就可以了,例如「我要一個電視櫃,現代簡約風,預算中等,寬200高150」,或者想到什麼說什麼也沒關係,我會繼續問您細節。', 'bot');
+</script>
+</body>
+</html>
