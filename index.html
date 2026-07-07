@@ -502,15 +502,17 @@ function wizardBuildCellPlan(rows, cols, purposeId, budgetId){
   return {cellsByRC, dividers, backPanels};
 }
 // 目前對話收集到的需求輪廓(不會存進 localStorage,重新整理頁面就會重新開始對話)
-let chatProfile = { purposeId:null, W:null, H:null, D:null, mainColor:null, boldStyle:false, budgetId:null, __generated:false };
+let chatProfile = { purposeId:null, W:null, H:null, D:null, rowsCount:null, colsCount:null, mainColor:null, boldStyle:false, budgetId:null, __generated:false };
 
 function chatDescribeProfile(p){
   const purposeDesc = (WIZARD_PURPOSE_RULES.find(r=>r.id===p.purposeId)||{}).desc || '一般用途(開放/封閉交錯)';
   const budgetDesc = (WIZARD_BUDGET_RULES.find(r=>r.id===p.budgetId)||{}).desc || '中等預算';
   const styleDesc = p.boldStyle ? '大膽撞色(多色混搭)' : (p.mainColor ? colorName(p.mainColor) : '沿用目前主色');
   const dimsParts = [];
-  if(p.W) dimsParts.push(`寬約${p.W}cm`);
-  if(p.H) dimsParts.push(`高約${p.H}cm`);
+  if(p.colsCount) dimsParts.push(`寬${p.colsCount}格`);
+  else if(p.W) dimsParts.push(`寬約${p.W}cm`);
+  if(p.rowsCount) dimsParts.push(`${p.rowsCount}層高`);
+  else if(p.H) dimsParts.push(`高約${p.H}cm`);
   if(p.D) dimsParts.push(`深約${p.D}cm`);
   const dimsDesc = dimsParts.length ? dimsParts.join('、') : '沿用目前尺寸設定';
   return `用途:${purposeDesc}\n尺寸:${dimsDesc}\n風格:${styleDesc}\n預算:${budgetDesc}`;
@@ -519,10 +521,25 @@ function chatDescribeProfile(p){
 // 邏輯跟先前單次版精靈的「套用」流程一樣,只是資料來源改成累積的 chatProfile。
 function applyWizardProfile(profile){
   let colsArr = state.cols.slice(), rows = state.rows, rowHeight = state.rowHeight, depth = state.depth;
-  const wFit = wizardFitDimension(profile.W, 6);
-  const hFit = wizardFitDimension(profile.H, 6);
-  if(wFit) colsArr = new Array(wFit.n).fill(wFit.tier);
-  if(hFit){ rows = hFit.n; rowHeight = hFit.tier; }
+
+  // 客戶(或 AI)如果是直接講「幾格寬/幾層高」這種模組數量,就直接套用那個實際格數/層數,
+  // 不要再透過「猜一個公分數字、找最接近的組合」這種間接換算——這正是之前客戶說「三層高」
+  // 卻套用成別的層數結果的原因,因為換算出來的公分數字不一定剛好對應到 3 層。
+  if(profile.colsCount){
+    const width = colsArr[0] || TIERS[TIERS.length-1];
+    colsArr = new Array(Math.max(1, Math.min(8, Math.round(profile.colsCount)))).fill(width);
+  } else {
+    const wFit = wizardFitDimension(profile.W, 6);
+    if(wFit) colsArr = new Array(wFit.n).fill(wFit.tier);
+  }
+
+  if(profile.rowsCount){
+    rows = Math.max(1, Math.min(6, Math.round(profile.rowsCount)));
+  } else {
+    const hFit = wizardFitDimension(profile.H, 6);
+    if(hFit){ rows = hFit.n; rowHeight = hFit.tier; }
+  }
+
   if(profile.D){
     let bestTier=TIERS[0], bestErr=Infinity;
     TIERS.forEach(t=>{ const e=Math.abs(t-profile.D); if(e<bestErr){bestErr=e; bestTier=t;} });
@@ -622,6 +639,9 @@ function mergeAiProfileUpdate(profileUpdate){
   if(typeof profileUpdate.width_cm==='number' && profileUpdate.width_cm>0) chatProfile.W = profileUpdate.width_cm;
   if(typeof profileUpdate.height_cm==='number' && profileUpdate.height_cm>0) chatProfile.H = profileUpdate.height_cm;
   if(typeof profileUpdate.depth_cm==='number' && profileUpdate.depth_cm>0) chatProfile.D = profileUpdate.depth_cm;
+  // 「幾層/幾格」這種模組數量的說法,由 AI 直接回報層數/格數,比猜一個公分數字更準確可靠。
+  if(typeof profileUpdate.rows_count==='number' && profileUpdate.rows_count>0) chatProfile.rowsCount = Math.round(profileUpdate.rows_count);
+  if(typeof profileUpdate.cols_count==='number' && profileUpdate.cols_count>0) chatProfile.colsCount = Math.round(profileUpdate.cols_count);
   if(profileUpdate.style){
     const styleRule = WIZARD_STYLE_RULES.find(r=>r.id===profileUpdate.style);
     if(styleRule){
