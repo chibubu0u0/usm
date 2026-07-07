@@ -412,9 +412,10 @@ function colBottomRow(c){ // 該欄最低的存在層,都沒有回傳 -1
   return -1;
 }
 
-/* ---------- 顧客需求精靈(自由文字關鍵字比對 → 產生初始配置) ----------
-   這是一個「純前端、無 AI 後端」的規則式比對,不是語意理解,只是把常見的
-   需求描述關鍵字對應到一組合理的起始設定。目的是幫忙起手,細節仍需人工檢查微調。 */
+/* ---------- 顧客需求精靈:AI 理解 → 轉成實際配置 ----------
+   「聽懂客戶在說什麼」這件事完全交給後面的 AI 後端判斷(不再有離線關鍵字比對版本)。
+   這裡保留的只是「理解結果之後,怎麼把用途/風格/預算換算成實際的層板/門片/顏色配置」
+   這段純粹的規則轉換邏輯,以及提供 AI 結果對照用的描述文字(desc)。 */
 const WIZARD_PURPOSE_RULES = [
   { id:'display', keywords:['展示','收藏','公仔','酒櫃','藝品','擺飾','珍藏','收藏品'], desc:'展示型(較多玻璃門片呈現收藏品)' },
   { id:'tv', keywords:['電視','影音','視聽','客廳櫃','客廳'], desc:'電視櫃型(下方封閉收納、上方開放放置視聽設備)' },
@@ -437,24 +438,6 @@ const WIZARD_BUDGET_RULES = [
 ];
 const WIZARD_BOLD_PALETTE = ['ral2004','ral5010','usmgreen','usmred','ral1004'];
 
-function wizardMatchRule(text, rules){
-  for(const rule of rules){
-    const hit = rule.keywords.find(k => text.indexOf(k) !== -1);
-    if(hit) return {rule, hit};
-  }
-  return null;
-}
-function wizardExtractDims(text){
-  let W,H,D;
-  // 樣式一:200x150x40 / 200*150*40 / 200×150×40
-  const m1 = text.match(/(\d{2,4})\s*[x×\*]\s*(\d{2,4})\s*(?:[x×\*]\s*(\d{2,4}))?/);
-  if(m1){ W=+m1[1]; H=+m1[2]; if(m1[3]) D=+m1[3]; }
-  // 樣式二:寬200 高150 深40(各自獨立出現,優先覆蓋樣式一的猜測)
-  const wM = text.match(/寬\s*(\d{2,4})/); if(wM) W=+wM[1];
-  const hM = text.match(/高\s*(\d{2,4})/); if(hM) H=+hM[1];
-  const dM = text.match(/深\s*(\d{2,4})/); if(dM) D=+dM[1];
-  return {W,H,D};
-}
 function wizardFitDimension(target, maxCount){
   if(!target) return null;
   let best=null;
@@ -521,21 +504,6 @@ function wizardBuildCellPlan(rows, cols, purposeId, budgetId){
 // 目前對話收集到的需求輪廓(不會存進 localStorage,重新整理頁面就會重新開始對話)
 let chatProfile = { purposeId:null, W:null, H:null, D:null, mainColor:null, boldStyle:false, budgetId:null, __generated:false };
 
-function chatMissingField(){
-  if(!chatProfile.purposeId) return 'purpose';
-  if(!chatProfile.W && !chatProfile.H) return 'dims';
-  if(!chatProfile.mainColor && !chatProfile.boldStyle) return 'style';
-  if(!chatProfile.budgetId) return 'budget';
-  return null;
-}
-function chatNextQuestion(field){
-  switch(field){
-    case 'dims': return '大概想要多寬、多高呢?(例如:寬200 高150,深度不說的話會沿用目前設定)';
-    case 'style': return '顏色風格上有沒有偏好?(木質溫暖 / 現代簡約 / 沉穩深色 / 活潑撞色)';
-    case 'budget': return '預算等級大概抓多少?(精簡陽春 / 中等 / 高階精緻)';
-    default: return '請問這個櫃子主要放什麼呢?(例如:書、電視、衣物、展示收藏品、辦公文件)';
-  }
-}
 function chatDescribeProfile(p){
   const purposeDesc = (WIZARD_PURPOSE_RULES.find(r=>r.id===p.purposeId)||{}).desc || '一般用途(開放/封閉交錯)';
   const budgetDesc = (WIZARD_BUDGET_RULES.find(r=>r.id===p.budgetId)||{}).desc || '中等預算';
@@ -607,10 +575,13 @@ function addChatBubble(text, from){
   wrap.scrollTop = wrap.scrollHeight;
 }
 
-/* ---------- AI 後端:內建預設網址,呼叫失敗就自動退回離線關鍵字比對 ----------
+/* ---------- AI 後端:內建預設網址,對話理解完全交給 AI 判斷 ----------
    金鑰(ANTHROPIC_API_KEY)只存在後端(Vercel 環境變數),這裡只是後端「網址」,
    不是密鑰本身,所以直接寫在檔案裡是安全的。一般客戶不需要、也看不到任何設定欄位;
-   只有店家自己需要換後端網址時,才需要點開下面隱藏的「後端設定(店家用)」。 */
+   只有店家自己需要換後端網址時,才需要點開下面隱藏的「後端設定(店家用)」。
+   刻意不做離線關鍵字比對的備援版本:如果同時有兩套「理解邏輯」交錯運作,
+   客戶會覺得對話忽好忽壞、一直卡在同樣的問題上打轉。連線失敗時會誠實告知客戶,
+   而不是偷偷切換成另一套規則。 */
 const CHAT_ENDPOINT_LS_KEY = 'usm_chat_endpoint_v1';
 // 這是目前實際部署好的後端網址,之後如果重新部署換了新網址,更新這裡就好。
 const DEFAULT_CHAT_ENDPOINT = 'https://usm-tau.vercel.app/api/chat';
@@ -634,7 +605,7 @@ function setChatStatus(state){
     el.textContent = '目前模式:AI 已連線';
     el.style.color = '#2e7d32';
   } else if(state==='error'){
-    el.textContent = '目前模式:AI 連線失敗,已自動改用離線規則比對';
+    el.textContent = '目前模式:AI 連線失敗';
     el.style.color = '#a4370f';
   } else {
     el.textContent = '目前模式:尚未測試連線';
@@ -662,12 +633,20 @@ function mergeAiProfileUpdate(profileUpdate){
     chatProfile.budgetId = profileUpdate.budget;
   }
 }
+// 第一次生成時附上完整摘要(用途/尺寸/風格/預算),讓客戶確認 AI 有聽懂;
+// 之後每次更新只給簡短提示,不再重複整段摘要——避免每一輪都印出同樣一大段文字,
+// 讓對話感覺像跳針一樣不斷重複。
 function chatMaybeGenerate(replyPrefix){
-  const recap = chatDescribeProfile(chatProfile);
-  const verb = chatProfile.__generated ? '更新' : '產生';
+  const isFirst = !chatProfile.__generated;
   applyWizardProfile(chatProfile);
-  const text = (replyPrefix ? replyPrefix + '\n\n' : '') +
-    `好的,已經幫您${verb}配置:\n${recap}\n\n可以到下方各卡片檢查細節,也可以繼續跟我說想調整的地方(例如:「預算調高一點」「我要現代簡約風」),我會重新幫您套用。`;
+  let note;
+  if(isFirst){
+    const recap = chatDescribeProfile(chatProfile);
+    note = `好的,已經幫您產生配置:\n${recap}\n\n可以到下方各卡片檢查細節,也可以繼續跟我說想調整的地方,我會重新幫您套用。`;
+  } else {
+    note = '好的,已經幫您更新配置,可以到下方檢查看看。';
+  }
+  const text = (replyPrefix ? replyPrefix + '\n\n' : '') + note;
   addChatBubble(text, 'bot');
   chatProfile.__generated = true;
 }
@@ -684,80 +663,54 @@ async function callAiBackend(endpoint, text, history){
   }
   return data;
 }
-// 每一句客戶的回覆都會嘗試比對「用途/尺寸/風格/預算」四個面向,只要偵測到就更新對應欄位
-// (不會因為這句話沒提到某個面向就清掉先前已經問到的資訊)。四個面向都齊全時就套用/重新套用設定,
-// 之後客戶隨時可以再補充或修改,系統會用同一份 profile 重新產生一次。這是離線(無 AI 後端)版本。
-function processChatMessageLocal(text){
-  const purposeMatch = wizardMatchRule(text, WIZARD_PURPOSE_RULES);
-  if(purposeMatch) chatProfile.purposeId = purposeMatch.rule.id;
-
-  const dims = wizardExtractDims(text);
-  if(dims.W) chatProfile.W = dims.W;
-  if(dims.H) chatProfile.H = dims.H;
-  if(dims.D) chatProfile.D = dims.D;
-
-  const styleMatch = wizardMatchRule(text, WIZARD_STYLE_RULES);
-  if(styleMatch){
-    if(styleMatch.rule.id==='bold'){ chatProfile.boldStyle = true; chatProfile.mainColor = null; }
-    else { chatProfile.boldStyle = false; chatProfile.mainColor = styleMatch.rule.color; }
-  }
-
-  const budgetMatch = wizardMatchRule(text, WIZARD_BUDGET_RULES);
-  if(budgetMatch) chatProfile.budgetId = budgetMatch.rule.id;
-
-  const hadAnyMatch = !!(purposeMatch || dims.W || dims.H || dims.D || styleMatch || budgetMatch);
-  const missing = chatMissingField();
-
-  if(!missing){
-    chatMaybeGenerate();
-  } else if(!hadAnyMatch){
-    addChatBubble('不好意思,我沒有聽懂,可以再說一次嗎?\n' + chatNextQuestion(missing), 'bot');
-  } else {
-    addChatBubble('收到!' + chatNextQuestion(missing), 'bot');
-  }
-}
-// 對外的主入口:使用者按送出/Enter 都會呼叫這個函式。有設定 AI 後端網址就優先走 AI,
-// 呼叫失敗(網路問題、後端掛掉、格式錯誤等)一律安全地退回離線關鍵字比對,不會讓客戶卡住。
+// 對外的主入口:使用者按送出/Enter 都會呼叫這個函式。完全交給 AI 後端判斷客戶想要什麼,
+// 沒有離線關鍵字比對版本。
 async function processChatMessage(text){
   text = (text||'').trim();
   if(!text) return;
   addChatBubble(text, 'user');
 
   const endpoint = getChatEndpoint();
-  if(endpoint){
-    try{
-      const priorHistory = chatHistory.slice();
-      const data = await callAiBackend(endpoint, text, priorHistory);
-      chatHistory.push({role:'user', content:text});
-      chatHistory.push({role:'assistant', content:data.assistantText || ''});
-      if(chatHistory.length > 40) chatHistory = chatHistory.slice(-40);
+  try{
+    const priorHistory = chatHistory.slice();
+    const data = await callAiBackend(endpoint, text, priorHistory);
+    chatHistory.push({role:'user', content:text});
+    chatHistory.push({role:'assistant', content:data.assistantText || ''});
+    if(chatHistory.length > 40) chatHistory = chatHistory.slice(-40);
 
-      mergeAiProfileUpdate(data.profileUpdate);
-      setChatStatus('ok');
+    mergeAiProfileUpdate(data.profileUpdate);
+    setChatStatus('ok');
 
-      const shouldGenerate = (data.profileUpdate && data.profileUpdate.ready_to_generate) || chatMissingField()===null;
-      if(shouldGenerate){
-        chatMaybeGenerate(data.assistantText || '');
-      } else if(data.assistantText){
-        addChatBubble(data.assistantText, 'bot');
-      } else {
-        addChatBubble(chatNextQuestion(chatMissingField()), 'bot');
-      }
-      return;
-    } catch(err){
-      console.warn('AI 後端呼叫失敗,改用離線關鍵字比對:', err);
-      setChatStatus('error');
-      // 不 return,往下掉到離線版本繼續處理這句話,確保客戶不會卡住沒有回應。
+    // profileUpdate 這一輪是否真的帶來新資訊(而不是只有 ready_to_generate 這個旗標)。
+    const profileHasNewInfo = !!(data.profileUpdate && Object.keys(data.profileUpdate).some(function(k){
+      const v = data.profileUpdate[k];
+      return k !== 'ready_to_generate' && v !== null && v !== undefined && v !== '';
+    }));
+    const aiSaysReady = !!(data.profileUpdate && data.profileUpdate.ready_to_generate);
+
+    // 還沒生成過:完全信任 AI 判斷的 ready_to_generate 決定何時該產生第一版配置。
+    // 已經生成過一次:只要這輪 AI 有回報任何新資訊就直接重新套用,不再用本地規則
+    // 要求「四個欄位都填齊」才動作——這正是之前對話容易卡在同一題、感覺跳針的主因。
+    // 如果這輪沒有新資訊(客戶只是閒聊、道謝等),就不會無意義地重複套用/重複提示。
+    if((aiSaysReady && !chatProfile.__generated) || (chatProfile.__generated && profileHasNewInfo)){
+      chatMaybeGenerate(data.assistantText || '');
+    } else if(data.assistantText){
+      addChatBubble(data.assistantText, 'bot');
+    } else {
+      addChatBubble('可以再多告訴我一點想法嗎?(例如用途、大概尺寸、喜歡的風格或預算)', 'bot');
     }
+  } catch(err){
+    console.warn('AI 後端呼叫失敗:', err);
+    setChatStatus('error');
+    addChatBubble('抱歉,現在跟 AI 助手的連線好像出了點問題,可以稍等一下再說一次看看嗎?如果一直失敗,麻煩跟店家反應一下(可能是後端網址或金鑰設定的問題)。', 'bot');
   }
-  processChatMessageLocal(text);
 }
 function chatReset(){
   chatProfile = { purposeId:null, W:null, H:null, D:null, mainColor:null, boldStyle:false, budgetId:null, __generated:false };
   chatHistory = [];
   document.getElementById('chatMessages').innerHTML = '';
   setChatStatus();
-  addChatBubble('您好!我是幫您規劃收納櫃的小幫手。' + chatNextQuestion(chatMissingField()), 'bot');
+  addChatBubble('您好!我是幫您規劃收納櫃的小幫手,用聊天的方式跟我說說需求就可以了,例如「我要一個電視櫃,現代簡約風,預算中等,寬200高150」,或者想到什麼說什麼也沒關係,我會繼續問您細節。', 'bot');
 }
 
 /* ---------- 下拉選單初始化 ---------- */
@@ -1620,7 +1573,7 @@ initThree();
 renderAll();
 document.getElementById('chatEndpointInput').value = getChatEndpoint();
 setChatStatus();
-addChatBubble('您好!我是幫您規劃收納櫃的小幫手。' + chatNextQuestion(chatMissingField()), 'bot');
+addChatBubble('您好!我是幫您規劃收納櫃的小幫手,用聊天的方式跟我說說需求就可以了,例如「我要一個電視櫃,現代簡約風,預算中等,寬200高150」,或者想到什麼說什麼也沒關係,我會繼續問您細節。', 'bot');
 </script>
 </body>
 </html>
