@@ -6,57 +6,103 @@
 <title>USM 模組化系統 配置與報價工具(3D 版)</title>
 <style>
   :root{
-    --border:#d8d8d6;
-    --bg:#f7f7f5;
+    --border:#e4e4e0;
+    --border-strong:#d3d3ce;
+    --bg:#f2f2ef;
     --panel:#ffffff;
     --accent:#1e2f3c;
-    --text:#222;
-    --muted:#777;
+    --accent-2:#3a5468;
+    --accent-soft:rgba(30,47,60,0.10);
+    --text:#1c1d1e;
+    --muted:#7a7a76;
+    --radius:14px;
+    --radius-sm:8px;
+    --shadow-card:0 1px 2px rgba(20,20,20,0.04), 0 10px 28px -12px rgba(20,20,20,0.10);
+    --shadow-pop:0 4px 14px -4px rgba(20,20,20,0.18);
   }
   *{box-sizing:border-box;}
+  html{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;}
   body{
-    font-family:"PingFang TC","Microsoft JhengHei",Helvetica,Arial,sans-serif;
-    background:var(--bg);
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang TC","Microsoft JhengHei","Segoe UI",Helvetica,Arial,sans-serif;
+    background:
+      radial-gradient(1100px 480px at 100% -10%, rgba(30,47,60,0.05), transparent 60%),
+      var(--bg);
+    background-attachment:fixed;
     color:var(--text);
     margin:0;
-    padding:20px;
+    padding:28px;
+    line-height:1.5;
   }
-  h1{font-size:20px;margin:0 0 4px;}
-  h2{font-size:15px;margin:0 0 10px;border-bottom:1px solid var(--border);padding-bottom:6px;}
-  .sub{color:var(--muted);font-size:13px;margin-bottom:18px;}
+  h1{
+    font-size:22px;
+    font-weight:700;
+    letter-spacing:-0.01em;
+    margin:0 0 6px;
+    color:var(--text);
+  }
+  h2{
+    font-size:13px;
+    font-weight:700;
+    letter-spacing:.04em;
+    text-transform:uppercase;
+    color:var(--accent);
+    margin:0 0 14px;
+    padding-bottom:10px;
+    border-bottom:1px solid var(--border);
+    display:flex;
+    align-items:center;
+    gap:8px;
+  }
+  h2::before{
+    content:"";
+    width:7px;height:7px;border-radius:2px;
+    background:var(--accent);
+    display:inline-block;
+    flex:none;
+  }
+  .sub{color:var(--muted);font-size:13px;margin-bottom:24px;max-width:900px;}
   .layout{
     display:grid;
     grid-template-columns: 400px 1fr;
-    gap:20px;
+    gap:22px;
     align-items:stretch; /* 讓右欄跟左欄一樣高,sticky預覽卡才有足夠空間可以一路跟著捲動 */
   }
   .card{
     background:var(--panel);
     border:1px solid var(--border);
-    border-radius:10px;
-    padding:16px;
-    margin-bottom:16px;
+    border-radius:var(--radius);
+    padding:20px;
+    margin-bottom:18px;
+    box-shadow:var(--shadow-card);
   }
   /* 3D 預覽固定在右欄,並跟著捲動軸黏在畫面上,調整左邊設定時始終看得到 */
   #previewCard{ position:sticky; top:20px; z-index:5; }
   @media print{ #previewCard{ position:static; } }
-  label{font-size:13px;display:block;margin:8px 0 4px;color:#444;}
+  label{font-size:12.5px;font-weight:600;display:block;margin:10px 0 5px;color:#4a4a48;}
   input[type=number], select, input[type=text], textarea{
     width:100%;
-    padding:6px 8px;
-    border:1px solid var(--border);
-    border-radius:6px;
+    padding:8px 10px;
+    border:1px solid var(--border-strong);
+    border-radius:var(--radius-sm);
     font-size:13px;
     background:#fff;
     font-family:inherit;
+    color:var(--text);
+    transition:border-color .15s ease, box-shadow .15s ease;
+  }
+  input[type=number]:hover, select:hover, input[type=text]:hover, textarea:hover{ border-color:#bcbcb6; }
+  input[type=number]:focus, select:focus, input[type=text]:focus, textarea:focus{
+    outline:none;
+    border-color:var(--accent-2);
+    box-shadow:0 0 0 3px var(--accent-soft);
   }
   textarea{resize:vertical;min-height:80px;}
   .wizardSummary{
     font-size:12.5px;
     line-height:1.7;
-    background:#f5f6f2;
+    background:#f6f7f3;
     border:1px solid var(--border);
-    border-radius:8px;
+    border-radius:var(--radius-sm);
     padding:10px 12px;
     margin-top:10px;
     white-space:pre-line;
@@ -65,34 +111,38 @@
   .chatMessages{
     display:flex;
     flex-direction:column;
-    gap:8px;
+    gap:9px;
     max-height:320px;
     overflow-y:auto;
-    padding:10px;
-    background:#f5f6f2;
+    padding:12px;
+    background:#f6f7f3;
     border:1px solid var(--border);
-    border-radius:8px;
+    border-radius:var(--radius-sm);
     margin-top:8px;
   }
+  .chatMessages::-webkit-scrollbar{width:8px;}
+  .chatMessages::-webkit-scrollbar-thumb{background:#d6d6d0;border-radius:8px;}
   .chatBubble{
     max-width:82%;
-    padding:8px 12px;
-    border-radius:12px;
+    padding:9px 13px;
+    border-radius:14px;
     font-size:13px;
     line-height:1.6;
     white-space:pre-line;
+    box-shadow:0 1px 2px rgba(20,20,20,0.05);
   }
   .chatBubble.bot{
     align-self:flex-start;
     background:#fff;
     border:1px solid var(--border);
-    border-bottom-left-radius:2px;
+    border-bottom-left-radius:3px;
   }
   .chatBubble.user{
     align-self:flex-end;
-    background:var(--accent);
+    background:linear-gradient(135deg, var(--accent-2), var(--accent));
     color:#fff;
-    border-bottom-right-radius:2px;
+    border-bottom-right-radius:3px;
+    box-shadow:0 4px 10px -4px rgba(30,47,60,0.45);
   }
   .chatInputRow{display:flex;gap:8px;margin-top:10px;}
   .chatInputRow input{flex:1;}
@@ -102,56 +152,67 @@
     color:var(--muted);
     cursor:pointer;
     text-decoration:underline;
+    text-underline-offset:2px;
     margin-top:8px;
     display:inline-block;
+    transition:color .15s ease;
   }
+  .chatAdminToggle:hover{ color:var(--accent); }
   .chatAdminPanel{margin-top:4px;}
   .row{display:flex;gap:8px;}
   .row > div{flex:1;}
   .colWidthList{display:flex;flex-direction:column;gap:6px;margin-top:6px;}
-  .colWidthList .item{display:flex;align-items:center;gap:6px;font-size:12px;}
-  .colWidthList .item span{width:44px;color:var(--muted);}
-  .checkline{display:flex;align-items:center;gap:8px;font-size:13px;margin:6px 0;}
-  .checkline input{width:auto;}
+  .colWidthList .item{display:flex;align-items:center;gap:8px;font-size:12px;}
+  .colWidthList .item span{width:96px;color:var(--muted);flex:none;}
+  .checkline{display:flex;align-items:center;gap:8px;font-size:13px;margin:8px 0;}
+  .checkline input{width:auto;accent-color:var(--accent);}
   table{width:100%;border-collapse:collapse;font-size:12.5px;}
-  th,td{border:1px solid var(--border);padding:5px 6px;text-align:center;}
-  th{background:#f0efe9;font-weight:600;}
+  th,td{border:1px solid var(--border);padding:7px 8px;text-align:center;}
+  th{background:#f4f3ee;font-weight:700;color:var(--accent);font-size:11.5px;letter-spacing:.02em;text-transform:uppercase;}
   td.rowlabel, th.rowlabel{text-align:left;background:#fafaf8;}
-  .gridEditor{display:grid;gap:6px;margin-top:8px;}
-  .cellEditor{border:1px solid var(--border);border-radius:6px;padding:6px;background:#fbfbfa;}
+  tbody tr:hover td{background:#fafaf7;}
+  .gridEditor{display:grid;gap:8px;margin-top:8px;}
+  .cellEditor{border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px;background:#fbfbfa;transition:border-color .15s ease, box-shadow .15s ease;}
+  .cellEditor:hover{border-color:var(--border-strong);box-shadow:0 2px 8px rgba(20,20,20,0.05);}
   .cellEditor select{margin-bottom:4px;}
   .cellEditor .lbl{font-size:11px;color:var(--muted);margin-bottom:2px;}
-  #canvasWrap{width:100%;height:min(70vh, 560px);min-height:380px;border-radius:8px;position:relative;cursor:grab;background:linear-gradient(180deg,#f4f4f2,#e9e9e6);}
-  .hint{font-size:11.5px;color:var(--muted);text-align:center;margin-top:6px;}
-  .bomTotal{font-size:16px;font-weight:700;text-align:right;margin-top:10px;}
+  #canvasWrap{width:100%;height:min(70vh, 560px);min-height:380px;border-radius:var(--radius-sm);position:relative;cursor:grab;background:linear-gradient(180deg,#f5f5f3,#e7e7e3);box-shadow:inset 0 0 0 1px var(--border);}
+  .hint{font-size:11.5px;color:var(--muted);text-align:center;margin-top:8px;}
+  .bomTotal{font-size:17px;font-weight:700;text-align:right;margin-top:12px;color:var(--accent);}
   .warn{color:#a4370f;font-size:12.5px;margin-top:6px;}
   .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;}
   button{
-    padding:8px 14px;
-    border-radius:6px;
+    padding:9px 16px;
+    border-radius:999px;
     border:1px solid var(--accent);
     background:var(--accent);
     color:#fff;
     font-size:13px;
+    font-weight:600;
     cursor:pointer;
+    transition:transform .12s ease, box-shadow .12s ease, filter .12s ease, background .12s ease;
+    box-shadow:0 1px 2px rgba(20,20,20,0.12);
   }
-  button.secondary{background:#fff;color:var(--accent);}
+  button:hover{ filter:brightness(1.12); transform:translateY(-1px); box-shadow:var(--shadow-pop); }
+  button:active{ transform:translateY(0); filter:brightness(0.97); }
+  button.secondary{background:#fff;color:var(--accent);box-shadow:0 1px 2px rgba(20,20,20,0.05);}
+  button.secondary:hover{ background:#f7f7f4; }
   .customerFields{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
   .customerFields .full{grid-column:1/3;}
-  .note{font-size:11.5px;color:var(--muted);margin-top:4px;line-height:1.5;}
+  .note{font-size:11.5px;color:var(--muted);margin-top:4px;line-height:1.6;}
   @media print{
     .no-print{display:none !important;}
     .layout{grid-template-columns:1fr;}
-    body{padding:0;}
-    .card{border:none;padding:0;margin-bottom:14px;}
+    body{padding:0;background:#fff;}
+    .card{border:none;padding:0;margin-bottom:14px;box-shadow:none;}
     /* 客戶/專案資訊卡在列印時保留(是報價單的抬頭資訊),但輸入框改成純文字樣式,
        不然印出來會看起來像一張還沒填完的空白表單,而不是正式報價單。 */
-    .card input[type=text]{border:none;background:transparent;padding:2px 0;color:var(--text);}
+    .card input[type=text]{border:none;background:transparent;padding:2px 0;color:var(--text);box-shadow:none;}
   }
   /* 手機/窄螢幕:固定 400px 的左欄在小螢幕上會爆版,改成單欄堆疊,
      3D 預覽也取消 sticky(在直式手機畫面上「黏住不動」反而會佔掉太多空間、擋住底下內容)。 */
   @media (max-width: 900px){
-    body{padding:12px;}
+    body{padding:14px;}
     .layout{grid-template-columns:1fr;gap:14px;}
     #previewCard{position:static;}
     .customerFields{grid-template-columns:1fr;}
