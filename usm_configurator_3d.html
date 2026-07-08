@@ -1399,11 +1399,14 @@ function rebuild3D(){
       mesh.castShadow = true; mesh.receiveShadow = true;
       group.add(mesh);
 
-      // 門片把手:實測官方配置器後修正,門片一律是圓形旋鈕把手(跟抽屜托盤五金同一系列),
-      // 不是溝線。掀門(鉸鏈在下、往上掀開)把手在門片上方;下掀門(鉸鏈在上、往下掀開)
-      // 把手在門片下方。伸縮門暫時比照掀門處理(上方把手)。
-      const TOP_HANDLE_DOORS = ['door_flip_metal','door_glass','door_extension_metal'];
-      const BOTTOM_HANDLE_DOORS = ['door_dropdown_metal','door_dropdown_acoustic'];
+      // 門片把手:查證官方組裝說明後修正(先前方向弄反了)。掀門(door_flip_metal)實際上是
+      // 鉸鏈裝在「上緣」、靠氣壓撐桿往上掀開(像掀蓋式收納箱),所以把手在門片下方(要往上推的
+      // 那個自由邊)。下掀門(door_dropdown_metal/acoustic)則是鉸鏈裝在「下緣」、往下往外翻開
+      // 成一片橫放的平台(像掀蓋式書桌桌板),所以把手在門片上方(要往下拉的那個自由邊)。
+      // 玻璃門(door_glass)實際上是側邊鉸鏈的一般開門,把手暫時比照掀門放在上方當簡化處理;
+      // 伸縮門(door_extension_metal)沒有鉸鏈,同樣暫時比照上方把手處理。
+      const TOP_HANDLE_DOORS = ['door_dropdown_metal','door_dropdown_acoustic','door_glass','door_extension_metal'];
+      const BOTTOM_HANDLE_DOORS = ['door_flip_metal'];
       if(TOP_HANDLE_DOORS.indexOf(cell.type)!==-1 || BOTTOM_HANDLE_DOORS.indexOf(cell.type)!==-1){
         const knobGeom = new THREE.CylinderGeometry(1.1, 1.1, 0.8, 20);
         knobGeom.rotateX(Math.PI/2);
