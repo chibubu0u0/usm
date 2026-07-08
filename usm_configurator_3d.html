@@ -563,32 +563,49 @@ function wizardBuildCellPlan(rows, cols, purposeId, budgetId){
   return {cellsByRC, dividers, backPanels};
 }
 // 目前對話收集到的需求輪廓(不會存進 localStorage,重新整理頁面就會重新開始對話)
-let chatProfile = { purposeId:null, W:null, H:null, D:null, rowsCount:null, colsCount:null, mainColor:null, boldStyle:false, budgetId:null, __generated:false };
+let chatProfile = { purposeId:null, W:null, H:null, D:null, rowsCount:null, colsCount:null, rowHeightsCm:null, colWidthsCm:null, rowCellTypes:null, mainColor:null, boldStyle:false, budgetId:null, __generated:false };
 
 function chatDescribeProfile(p){
   const purposeDesc = (WIZARD_PURPOSE_RULES.find(r=>r.id===p.purposeId)||{}).desc || '一般用途(開放/封閉交錯)';
   const budgetDesc = (WIZARD_BUDGET_RULES.find(r=>r.id===p.budgetId)||{}).desc || '中等預算';
   const styleDesc = p.boldStyle ? '大膽撞色(多色混搭)' : (p.mainColor ? colorName(p.mainColor) : '沿用目前主色');
   const dimsParts = [];
-  if(p.colsCount) dimsParts.push(`寬${p.colsCount}格`);
+  if(p.colWidthsCm && p.colWidthsCm.length) dimsParts.push(`各欄寬度(左到右)${p.colWidthsCm.join('/')}cm`);
+  else if(p.colsCount) dimsParts.push(`寬${p.colsCount}格`);
   else if(p.W) dimsParts.push(`寬約${p.W}cm`);
-  if(p.rowsCount) dimsParts.push(`${p.rowsCount}層高`);
+  if(p.rowHeightsCm && p.rowHeightsCm.length) dimsParts.push(`各層高度(上到下)${p.rowHeightsCm.join('/')}cm`);
+  else if(p.rowsCount) dimsParts.push(`${p.rowsCount}層高`);
   else if(p.H) dimsParts.push(`高約${p.H}cm`);
   if(p.D) dimsParts.push(`深約${p.D}cm`);
   const dimsDesc = dimsParts.length ? dimsParts.join('、') : '沿用目前尺寸設定';
-  return `用途:${purposeDesc}\n尺寸:${dimsDesc}\n風格:${styleDesc}\n預算:${budgetDesc}`;
+  const typesDesc = (p.rowCellTypes && p.rowCellTypes.length)
+    ? '\n各層面板(上到下):' + p.rowCellTypes.map(id => (CELL_TYPES.find(t=>t.id===id)||{}).name || id).join('、')
+    : '';
+  return `用途:${purposeDesc}\n尺寸:${dimsDesc}${typesDesc}\n風格:${styleDesc}\n預算:${budgetDesc}`;
 }
 // 把目前收集到的 profile 實際套用到 state(欄寬/層數/層高/深度/主色/每格配置),
 // 邏輯跟先前單次版精靈的「套用」流程一樣,只是資料來源改成累積的 chatProfile。
+// 把一個公分數字對應到某個尺寸集合(WH_TIERS 或 DEPTH_TIERS)裡最接近的官方模組尺寸。
+function snapToNearestTier(value, tiers){
+  let best=tiers[0], bestErr=Infinity;
+  tiers.forEach(t=>{ const e=Math.abs(t-value); if(e<bestErr){bestErr=e; best=t;} });
+  return best;
+}
 function applyWizardProfile(profile){
-  // AI 精靈產生的初版一律先套用「統一層高」(客戶還沒講到「這幾層要各自不同高度」這種細節);
-  // 產生完之後,客戶可以在「各層高度」清單裡各自微調任何一層,不受這裡的邏輯限制。
+  // AI 精靈預設套用「統一層高」(客戶還沒講到「這幾層要各自不同高度」這種細節);
+  // 但如果客戶明確講出「每一層各自要多高」(profile.rowHeightsCm),就直接照客戶講的套用,
+  // 不再統一——USM 系統本身允許每一層各自不同高度,不應該告訴客戶「所有層必須同高」。
   let colsArr = state.cols.slice(), rows = state.rows, rowHeightTier = (state.rowHeights && state.rowHeights[0]) || 35, depth = state.depth;
+  let customRowHeights = null; // 由下往上排列好的完整陣列,非 null 時會直接取代「統一層高」的邏輯
 
-  // 客戶(或 AI)如果是直接講「幾格寬/幾層高」這種模組數量,就直接套用那個實際格數/層數,
-  // 不要再透過「猜一個公分數字、找最接近的組合」這種間接換算——這正是之前客戶說「三層高」
-  // 卻套用成別的層數結果的原因,因為換算出來的公分數字不一定剛好對應到 3 層。
-  if(profile.colsCount){
+  // 客戶明確指定「每一欄各自的寬度」(由左到右)時,每個數字各自抓最接近的官方模組尺寸,
+  // 不透過「猜一個整體公分數字、找 n x tier 最佳組合」這種間接換算。
+  if(profile.colWidthsCm && profile.colWidthsCm.length){
+    colsArr = profile.colWidthsCm.map(w => snapToNearestTier(w, WH_TIERS));
+  } else if(profile.colsCount){
+    // 客戶(或 AI)如果是直接講「幾格寬」這種模組數量,就直接套用那個實際格數,
+    // 不要再透過「猜一個公分數字、找最接近的組合」這種間接換算——這正是之前客戶說「三層高」
+    // 卻套用成別的層數結果的原因,因為換算出來的公分數字不一定剛好對應到 3 層。
     const width = colsArr[0] || WH_TIERS[WH_TIERS.length-1];
     colsArr = new Array(Math.max(1, Math.min(8, Math.round(profile.colsCount)))).fill(width);
   } else {
@@ -596,7 +613,13 @@ function applyWizardProfile(profile){
     if(wFit) colsArr = new Array(wFit.n).fill(wFit.tier);
   }
 
-  if(profile.rowsCount){
+  if(profile.rowHeightsCm && profile.rowHeightsCm.length){
+    // AI 回報的陣列是「由上到下」(比較符合客戶描述習慣的順序),但 state.rowHeights 內部
+    // 是「由下往上」存放(索引 0 = 最下面那一層,跟其他座標系一致),所以要反過來。
+    const snapped = profile.rowHeightsCm.map(h => snapToNearestTier(h, WH_TIERS));
+    rows = snapped.length;
+    customRowHeights = snapped.slice().reverse();
+  } else if(profile.rowsCount){
     rows = Math.max(1, Math.min(6, Math.round(profile.rowsCount)));
   } else {
     const hFit = wizardFitDimension(profile.H, 6);
@@ -605,9 +628,7 @@ function applyWizardProfile(profile){
 
   if(profile.D){
     // 深度只有 25/35/50/75cm 四種官方選項(比寬/高少 17.5 跟 39.5 這兩種),用專屬的 DEPTH_TIERS 比對。
-    let bestTier=DEPTH_TIERS[0], bestErr=Infinity;
-    DEPTH_TIERS.forEach(t=>{ const e=Math.abs(t-profile.D); if(e<bestErr){bestErr=e; bestTier=t;} });
-    depth = bestTier;
+    depth = snapToNearestTier(profile.D, DEPTH_TIERS);
   }
   const purposeId = profile.purposeId || 'mixed';
   const budgetId = profile.budgetId || 'mid';
@@ -615,7 +636,7 @@ function applyWizardProfile(profile){
 
   state.cols = colsArr;
   state.rows = rows;
-  state.rowHeights = new Array(rows).fill(rowHeightTier);
+  state.rowHeights = customRowHeights || new Array(rows).fill(rowHeightTier);
   state.depth = depth;
   state.mainColor = mainColor;
 
@@ -634,6 +655,22 @@ function applyWizardProfile(profile){
   Object.keys(plan.cellsByRC).forEach(key=>{ state.cells[key] = plan.cellsByRC[key]; });
   Object.keys(plan.dividers).forEach(key=>{ state.dividers[key] = plan.dividers[key]; });
   Object.keys(plan.backPanels).forEach(key=>{ state.backPanels[key] = true; });
+
+  // 客戶明確指定「某一層要用什麼面板/門片」時(由上到下,例如「最上層開放、第二層下掀門」),
+  // 直接覆蓋掉用途/預算自動安排的結果,整層(該層每一欄)都套用客戶指定的類型。
+  if(profile.rowCellTypes && profile.rowCellTypes.length){
+    const validIds = ENABLED_CELL_TYPES.map(t=>t.id);
+    const n = Math.min(profile.rowCellTypes.length, rows);
+    for(let i=0;i<n;i++){
+      const typeId = profile.rowCellTypes[i];
+      if(validIds.indexOf(typeId)===-1) continue;
+      const r = rows-1-i; // AI 陣列由上到下第 i 個 → 內部由下往上第 r 層
+      for(let c=0;c<colsArr.length;c++){
+        const key = r+'_'+c;
+        if(state.cells[key]) state.cells[key] = {type:typeId, color:''};
+      }
+    }
+  }
 
   if(profile.boldStyle){
     // 撞色風格:每個封閉格輪流套用不同顏色,而不是統一主色
@@ -706,12 +743,29 @@ function mergeAiProfileUpdate(profileUpdate){
   // 「幾層/幾格」這種模組數量的說法,由 AI 直接回報層數/格數,比猜一個公分數字更準確可靠。
   if(typeof profileUpdate.rows_count==='number' && profileUpdate.rows_count>0) chatProfile.rowsCount = Math.round(profileUpdate.rows_count);
   if(typeof profileUpdate.cols_count==='number' && profileUpdate.cols_count>0) chatProfile.colsCount = Math.round(profileUpdate.cols_count);
+  // 客戶明確講出「每一層各自要多高」/「每一欄各自要多寬」/「每一層要用什麼面板」時,
+  // AI 會回報完整陣列,比粗略的用途/預算自動安排更準確地反映客戶的具體指示。
+  if(Array.isArray(profileUpdate.row_heights_cm) && profileUpdate.row_heights_cm.every(n=>typeof n==='number' && n>0)){
+    chatProfile.rowHeightsCm = profileUpdate.row_heights_cm.slice();
+  }
+  if(Array.isArray(profileUpdate.col_widths_cm) && profileUpdate.col_widths_cm.every(n=>typeof n==='number' && n>0)){
+    chatProfile.colWidthsCm = profileUpdate.col_widths_cm.slice();
+  }
+  if(Array.isArray(profileUpdate.row_cell_type) && profileUpdate.row_cell_type.every(s=>typeof s==='string')){
+    chatProfile.rowCellTypes = profileUpdate.row_cell_type.slice();
+  }
   if(profileUpdate.style){
     const styleRule = WIZARD_STYLE_RULES.find(r=>r.id===profileUpdate.style);
     if(styleRule){
       if(styleRule.id==='bold'){ chatProfile.boldStyle = true; chatProfile.mainColor = null; }
       else { chatProfile.boldStyle = false; chatProfile.mainColor = styleRule.color; }
     }
+  }
+  // 客戶講出具體顏色(例如「綠色」「石墨黑」)時,直接套用精確色號,比 style 那四個粗略分類更準確——
+  // style 只有木質/現代/深色/撞色四種,沒辦法表達「綠色」這種指定色,所以要有這個獨立欄位。
+  if(profileUpdate.main_color && COLORS.some(c=>c.id===profileUpdate.main_color)){
+    chatProfile.boldStyle = false;
+    chatProfile.mainColor = profileUpdate.main_color;
   }
   if(profileUpdate.budget && WIZARD_BUDGET_RULES.some(r=>r.id===profileUpdate.budget)){
     chatProfile.budgetId = profileUpdate.budget;
@@ -790,7 +844,7 @@ async function processChatMessage(text){
   }
 }
 function chatReset(){
-  chatProfile = { purposeId:null, W:null, H:null, D:null, mainColor:null, boldStyle:false, budgetId:null, __generated:false };
+  chatProfile = { purposeId:null, W:null, H:null, D:null, rowsCount:null, colsCount:null, rowHeightsCm:null, colWidthsCm:null, rowCellTypes:null, mainColor:null, boldStyle:false, budgetId:null, __generated:false };
   chatHistory = [];
   document.getElementById('chatMessages').innerHTML = '';
   setChatStatus();
