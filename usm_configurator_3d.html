@@ -2,6 +2,7 @@
 <html lang="zh-Hant">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>USM 模組化系統 配置與報價工具(3D 版)</title>
 <style>
   :root{
@@ -143,13 +144,26 @@
     .layout{grid-template-columns:1fr;}
     body{padding:0;}
     .card{border:none;padding:0;margin-bottom:14px;}
+    /* 客戶/專案資訊卡在列印時保留(是報價單的抬頭資訊),但輸入框改成純文字樣式,
+       不然印出來會看起來像一張還沒填完的空白表單,而不是正式報價單。 */
+    .card input[type=text]{border:none;background:transparent;padding:2px 0;color:var(--text);}
+  }
+  /* 手機/窄螢幕:固定 400px 的左欄在小螢幕上會爆版,改成單欄堆疊,
+     3D 預覽也取消 sticky(在直式手機畫面上「黏住不動」反而會佔掉太多空間、擋住底下內容)。 */
+  @media (max-width: 900px){
+    body{padding:12px;}
+    .layout{grid-template-columns:1fr;gap:14px;}
+    #previewCard{position:static;}
+    .customerFields{grid-template-columns:1fr;}
+    .customerFields .full{grid-column:1;}
+    #canvasWrap{height:min(60vh, 420px);}
   }
 </style>
 </head>
 <body>
 
 <h1>USM 模組化系統 — 配置與報價工具(3D 版 v2)</h1>
-<div class="sub">獨立網頁應用,雙擊開啟即可使用,不需連上任何 Claude 對話。「0. 顧客需求小幫手」聊天時會連線到後端取得 AI 回覆(需要網路連線);連線失敗會自動改用離線關鍵字比對。3D 球接頭/連接管尺寸依官方規格比例建模(球徑20mm、管徑12.7mm),但面板/門片顏色為近似色、實際五金明細仍以 USM 官方報價為準。</div>
+<div class="sub">獨立網頁應用,雙擊開啟即可使用,不需連上任何 Claude 對話。「0. 顧客需求小幫手」聊天時會連線到後端取得 AI 回覆,需要網路連線;連線失敗時會直接顯示錯誤訊息並可以再試一次,不會有離線版本。3D 球接頭/連接管尺寸依官方規格比例建模(球徑20mm、管徑12.7mm),寬/高模組尺寸為 17.5/25/35/39.5/50/75cm、深度為 25/35/50/75cm(依 USM 官方規格表);面板/門片顏色為近似色、實際五金明細仍以 USM 官方報價為準。</div>
 
 <div class="layout">
   <div>
@@ -170,7 +184,7 @@
       </div>
     </div>
 
-    <div class="card no-print">
+    <div class="card">
       <h2>1. 客戶 / 專案資訊</h2>
       <div class="customerFields">
         <div><label>客戶名稱</label><input type="text" id="custName" placeholder="王小姐"></div>
@@ -187,18 +201,15 @@
         <div><label>欄數(左右幾格)</label><input type="number" id="colsCount" min="1" max="8" value="3"></div>
         <div><label>層數(上下幾格)</label><input type="number" id="rowsCount" min="1" max="6" value="3"></div>
       </div>
-      <div class="row">
-        <div>
-          <label>每層高度</label>
-          <select id="rowHeight"><option value="35">35 cm</option><option value="50">50 cm</option><option value="75">75 cm</option></select>
-        </div>
-        <div>
-          <label>深度</label>
-          <select id="depth"><option value="35">35 cm</option><option value="50">50 cm</option><option value="75">75 cm</option></select>
-        </div>
+      <div>
+        <label>深度(整個櫃子共用同一個深度)</label>
+        <select id="depth"><option value="25">25 cm</option><option value="35">35 cm</option><option value="50">50 cm</option><option value="75">75 cm</option></select>
       </div>
-      <label>各欄寬度</label>
+      <label style="margin-top:10px;">各欄寬度</label>
       <div class="colWidthList" id="colWidthList"></div>
+
+      <label style="margin-top:10px;">各層高度(每一層可各自獨立設定)</label>
+      <div class="colWidthList" id="rowHeightList"></div>
 
       <label style="margin-top:10px;">主色(預設套用於門片/面板,各段/各格若不個別指定顏色則跟隨此色)</label>
       <select id="mainColor"></select>
@@ -306,7 +317,17 @@ const CELL_TYPES = [
   {id:'drawer_small', name:'小型抽屜(限深50cm)', kind:'flat', category:'drawer'},
   {id:'drawer_a6', name:'A6 抽屜(限深50cm)', kind:'flat', category:'drawer'}
 ];
-const TIERS = [35,50,75];
+// 依 USM 官方規格表(USM Haller Specifications PDF)訂正的真實模組尺寸(單位:cm)。
+// 寬度/高度共用同一組六種模組尺寸;深度則是另外四種,是寬高清單的子集
+// (深度沒有 17.5 跟 39.5 這兩個較窄的選項)。
+const WH_TIERS = [17.5,25,35,39.5,50,75];
+const DEPTH_TIERS = [25,35,50,75];
+// 建立一份「每個寬/高模組尺寸 → 0」的價格表模板,取代原本寫死只有 35/50/75 三個 key 的做法。
+function zeroTierMap(){
+  const m = {};
+  WH_TIERS.forEach(t=>{ m[t]=0; });
+  return m;
+}
 // 玻璃(玻璃面板/玻璃門)實際上是固定的強化清玻璃,USM 官方並沒有像烤漆金屬面板那樣
 // 提供 RAL 色卡可選,不論主色或每格顏色怎麼設,玻璃永遠用這個固定的清玻璃色調渲染。
 const GLASS_TINT_HEX = '#dfe9e6';
@@ -317,7 +338,7 @@ const ENABLED_CELL_TYPES = CELL_TYPES.filter(t=>t.category!=='drawer');
 let state = {
   cols: [75,75,50],
   rows: 3,
-  rowHeight: 35,
+  rowHeights: [35,35,35], // 每一層各自的高度(cm),r=0 是最下面那一層,索引方式跟其他座標一致
   depth: 35,
   mainColor: 'ral9011',
   leftPanel:true, rightPanel:true, topPanel:true, bottomPanel:true,
@@ -330,23 +351,63 @@ let state = {
   bottomPanelColors: {}, // c -> colorId(底板每一欄獨立)
   dividers: {}, // "r_b" -> {enabled, color} : 第r層、第b欄與第b+1欄之間的直立隔板(b: 0 ~ 欄數-2)
   mask: {}, // "r_c" -> false 表示這一格被移除(不存在);沒有紀錄=預設存在
-  prices: { ball:0, tube:{35:0,50:0,75:0} }
+  prices: { ball:0, tube: zeroTierMap() }
 };
 CELL_TYPES.forEach(t=>{
-  if(t.kind==='tiered') state.prices[t.id] = {35:0,50:0,75:0};
+  if(t.kind==='tiered') state.prices[t.id] = zeroTierMap();
   else state.prices[t.id] = 0;
 });
 
 /* ---------- localStorage ---------- */
 const LS_KEY='usm_configurator_3d_state_v1';
+// 注意:state 這個物件一開始就已經有預設的 rowHeights 陣列了,所以不能只看
+// 「Object.assign 之後 state.rowHeights 存不存在」來判斷要不要用舊資料回填——那樣永遠
+// 看起來都「存在」(可能只是還沒被覆蓋的預設值)。要在合併之前,直接檢查「外部載入的這份
+// 資料本身」有沒有帶 rowHeights,沒有的話才用它的舊版單一 rowHeight 數字回填出一個陣列,
+// 這樣 Object.assign 才會用回填好的陣列正確覆蓋掉預設值。讀 localStorage 存檔、匯入 JSON
+// 兩個路徑都要走這段共用的遷移邏輯。
+function migrateLoadedState(parsed){
+  if(parsed && typeof parsed==='object' && !Array.isArray(parsed.rowHeights) && typeof parsed.rows==='number' && parsed.rows>0){
+    const fallback = (typeof parsed.rowHeight==='number' && parsed.rowHeight>0) ? parsed.rowHeight : 35;
+    parsed.rowHeights = new Array(parsed.rows).fill(fallback);
+  }
+  return parsed;
+}
 function loadState(){
   try{
     const raw = localStorage.getItem(LS_KEY);
-    if(raw){ state = Object.assign(state, JSON.parse(raw)); }
+    if(raw){ state = Object.assign(state, migrateLoadedState(JSON.parse(raw))); }
   }catch(e){ console.warn('load state failed', e); }
 }
 function saveState(){
   try{ localStorage.setItem(LS_KEY, JSON.stringify(state)); }catch(e){}
+}
+// 確保 state.rowHeights 陣列長度永遠跟 state.rows 一致,並且相容舊版存檔
+// (舊版只有單一 state.rowHeight 數字,沒有每層各自的陣列)。在 renderAll() 一開始呼叫,
+// 這樣不管是讀取舊存檔、匯入舊版 JSON、或是 AI 精靈/欄數調整等任何途徑造成不同步,都會自動修正。
+function normalizeRowHeights(){
+  if(!Array.isArray(state.rowHeights)) state.rowHeights = [];
+  const fallback = (typeof state.rowHeight==='number' && state.rowHeight>0) ? state.rowHeight : 35;
+  while(state.rowHeights.length < state.rows) state.rowHeights.push(fallback);
+  if(state.rowHeights.length > state.rows) state.rowHeights.length = state.rows;
+}
+// state.prices 是用 Object.assign 淺層合併回來的(讀舊存檔或匯入 JSON 時),如果對方缺少
+// 任何一個尺寸分級的 key(例如舊存檔是規格修正前只有 35/50/75 三個 key 的年代存的、或是之後
+// 又新增了新的面板/門片種類),沒補齊就會讓 renderPriceTables/BOM 在讀取 undefined 的價格
+// 時整個壞掉。這裡確保每次渲染前,價格表結構永遠完整、每個 key 都至少是 0。
+function normalizePrices(){
+  if(!state.prices || typeof state.prices !== 'object') state.prices = {};
+  if(typeof state.prices.ball !== 'number') state.prices.ball = 0;
+  if(!state.prices.tube || typeof state.prices.tube !== 'object') state.prices.tube = zeroTierMap();
+  else WH_TIERS.forEach(t=>{ if(typeof state.prices.tube[t] !== 'number') state.prices.tube[t] = 0; });
+  CELL_TYPES.forEach(t=>{
+    if(t.kind==='tiered'){
+      if(!state.prices[t.id] || typeof state.prices[t.id] !== 'object') state.prices[t.id] = zeroTierMap();
+      else WH_TIERS.forEach(tier=>{ if(typeof state.prices[t.id][tier] !== 'number') state.prices[t.id][tier] = 0; });
+    } else {
+      if(typeof state.prices[t.id] !== 'number') state.prices[t.id] = 0;
+    }
+  });
 }
 
 /* ---------- 工具 ---------- */
@@ -442,7 +503,7 @@ function wizardFitDimension(target, maxCount){
   if(!target) return null;
   let best=null;
   for(let n=1;n<=maxCount;n++){
-    TIERS.forEach(tier=>{
+    WH_TIERS.forEach(tier=>{
       const total=n*tier;
       const err=Math.abs(total-target);
       if(!best || err<best.err) best={n,tier,err,total};
@@ -520,13 +581,15 @@ function chatDescribeProfile(p){
 // 把目前收集到的 profile 實際套用到 state(欄寬/層數/層高/深度/主色/每格配置),
 // 邏輯跟先前單次版精靈的「套用」流程一樣,只是資料來源改成累積的 chatProfile。
 function applyWizardProfile(profile){
-  let colsArr = state.cols.slice(), rows = state.rows, rowHeight = state.rowHeight, depth = state.depth;
+  // AI 精靈產生的初版一律先套用「統一層高」(客戶還沒講到「這幾層要各自不同高度」這種細節);
+  // 產生完之後,客戶可以在「各層高度」清單裡各自微調任何一層,不受這裡的邏輯限制。
+  let colsArr = state.cols.slice(), rows = state.rows, rowHeightTier = (state.rowHeights && state.rowHeights[0]) || 35, depth = state.depth;
 
   // 客戶(或 AI)如果是直接講「幾格寬/幾層高」這種模組數量,就直接套用那個實際格數/層數,
   // 不要再透過「猜一個公分數字、找最接近的組合」這種間接換算——這正是之前客戶說「三層高」
   // 卻套用成別的層數結果的原因,因為換算出來的公分數字不一定剛好對應到 3 層。
   if(profile.colsCount){
-    const width = colsArr[0] || TIERS[TIERS.length-1];
+    const width = colsArr[0] || WH_TIERS[WH_TIERS.length-1];
     colsArr = new Array(Math.max(1, Math.min(8, Math.round(profile.colsCount)))).fill(width);
   } else {
     const wFit = wizardFitDimension(profile.W, 6);
@@ -537,12 +600,13 @@ function applyWizardProfile(profile){
     rows = Math.max(1, Math.min(6, Math.round(profile.rowsCount)));
   } else {
     const hFit = wizardFitDimension(profile.H, 6);
-    if(hFit){ rows = hFit.n; rowHeight = hFit.tier; }
+    if(hFit){ rows = hFit.n; rowHeightTier = hFit.tier; }
   }
 
   if(profile.D){
-    let bestTier=TIERS[0], bestErr=Infinity;
-    TIERS.forEach(t=>{ const e=Math.abs(t-profile.D); if(e<bestErr){bestErr=e; bestTier=t;} });
+    // 深度只有 25/35/50/75cm 四種官方選項(比寬/高少 17.5 跟 39.5 這兩種),用專屬的 DEPTH_TIERS 比對。
+    let bestTier=DEPTH_TIERS[0], bestErr=Infinity;
+    DEPTH_TIERS.forEach(t=>{ const e=Math.abs(t-profile.D); if(e<bestErr){bestErr=e; bestTier=t;} });
     depth = bestTier;
   }
   const purposeId = profile.purposeId || 'mixed';
@@ -551,7 +615,7 @@ function applyWizardProfile(profile){
 
   state.cols = colsArr;
   state.rows = rows;
-  state.rowHeight = rowHeight;
+  state.rowHeights = new Array(rows).fill(rowHeightTier);
   state.depth = depth;
   state.mainColor = mainColor;
 
@@ -758,13 +822,36 @@ function renderColWidthList(){
     div.className='item';
     div.innerHTML=`<span>第${i+1}欄</span>`;
     const sel=document.createElement('select');
-    TIERS.forEach(t=>{
+    WH_TIERS.forEach(t=>{
       const opt=document.createElement('option');
       opt.value=t; opt.textContent=t+' cm';
       if(t===w) opt.selected=true;
       sel.appendChild(opt);
     });
-    sel.addEventListener('change', ()=>{ state.cols[i]=parseInt(sel.value); renderAll(); });
+    // 用 parseFloat 而不是 parseInt,因為 17.5 / 39.5 是有效的官方模組尺寸(帶小數)。
+    sel.addEventListener('change', ()=>{ state.cols[i]=parseFloat(sel.value); renderAll(); });
+    div.appendChild(sel);
+    wrap.appendChild(div);
+  });
+}
+
+/* ---------- 層高設定(每一層各自獨立,邏輯跟欄寬完全對稱) ---------- */
+function renderRowHeightList(){
+  const wrap=document.getElementById('rowHeightList');
+  if(!wrap) return;
+  wrap.innerHTML='';
+  state.rowHeights.forEach((h,r)=>{
+    const div=document.createElement('div');
+    div.className='item';
+    div.innerHTML=`<span>第${r+1}層(由下往上數)</span>`;
+    const sel=document.createElement('select');
+    WH_TIERS.forEach(t=>{
+      const opt=document.createElement('option');
+      opt.value=t; opt.textContent=t+' cm';
+      if(t===h) opt.selected=true;
+      sel.appendChild(opt);
+    });
+    sel.addEventListener('change', ()=>{ state.rowHeights[r]=parseFloat(sel.value); renderAll(); });
     div.appendChild(sel);
     wrap.appendChild(div);
   });
@@ -968,7 +1055,7 @@ function renderPriceTables(){
   ballInput.addEventListener('input',()=>{ state.prices.ball=parseFloat(ballInput.value)||0; recompute(); saveState(); });
   trBall.children[1].appendChild(ballInput);
   tb1.appendChild(trBall);
-  TIERS.forEach(t=>{
+  WH_TIERS.forEach(t=>{
     const tr=document.createElement('tr');
     tr.innerHTML=`<td class="rowlabel">連接管 ${t}cm(每支)</td><td></td>`;
     const inp=document.createElement('input');
@@ -982,12 +1069,12 @@ function renderPriceTables(){
   wrap.appendChild(document.createElement('div')).style.height='10px';
 
   const t2=document.createElement('table');
-  t2.innerHTML=`<thead><tr><th class="rowlabel">面板 / 門片(依寬度分級)</th><th>35cm</th><th>50cm</th><th>75cm</th></tr></thead>`;
+  t2.innerHTML=`<thead><tr><th class="rowlabel">面板 / 門片(依寬度分級)</th>${WH_TIERS.map(t=>`<th>${t}cm</th>`).join('')}</tr></thead>`;
   const tb2=document.createElement('tbody');
   CELL_TYPES.filter(t=>t.kind==='tiered' && !t.fixedZero).forEach(t=>{
     const tr=document.createElement('tr');
-    tr.innerHTML=`<td class="rowlabel">${t.name}</td><td></td><td></td><td></td>`;
-    TIERS.forEach((tier,idx)=>{
+    tr.innerHTML=`<td class="rowlabel">${t.name}</td>${WH_TIERS.map(()=>'<td></td>').join('')}`;
+    WH_TIERS.forEach((tier,idx)=>{
       const inp=document.createElement('input');
       inp.type='number'; inp.value=state.prices[t.id][tier];
       inp.addEventListener('input',()=>{ state.prices[t.id][tier]=parseFloat(inp.value)||0; recompute(); saveState(); });
@@ -1121,12 +1208,16 @@ function rebuild3D(){
   const group = three.group;
   disposeGroupChildren(group);
 
-  const cols = state.cols, M = state.rows, H_ = state.rowHeight, D = state.depth;
+  const cols = state.cols, M = state.rows, rowHeights = state.rowHeights, D = state.depth;
   const N = cols.length;
   const colOffsets = [0];
   for(let i=0;i<N;i++) colOffsets.push(colOffsets[i]+cols[i]);
   const totalWidth = colOffsets[N];
-  const totalHeight = M*H_;
+  // 每一層高度可能不同,所以跟欄寬一樣改用累加陣列(rowOffsets[r] = 第 r 層底部的 Y 座標),
+  // 不能再用「r * 單一高度」這種假設所有層等高的算法。
+  const rowOffsets = [0];
+  for(let i=0;i<M;i++) rowOffsets.push(rowOffsets[i]+rowHeights[i]);
+  const totalHeight = rowOffsets[M];
 
   // 依 USM 官方規格:球徑20mm(半徑1cm)、連接管直徑12.7mm(半徑0.635cm)
   const ballR = 1.0, tubeR = 0.635;
@@ -1164,11 +1255,11 @@ function rebuild3D(){
   const frame = computeFrameSets();
   for(let zi=0; zi<2; zi++){
     const z = zi===0 ? 0 : -D;
-    frame.points.forEach(key=>{ const p=key.split('_'); addBall(colOffsets[+p[0]], (+p[1])*H_, z); });
-    frame.hTubes.forEach(key=>{ const p=key.split('_'); const c=+p[0], r=+p[1]; addTubeX(colOffsets[c], colOffsets[c+1], r*H_, z); });
-    frame.vTubes.forEach(key=>{ const p=key.split('_'); const c=+p[0], r=+p[1]; addTubeY(colOffsets[c], r*H_, (r+1)*H_, z); });
+    frame.points.forEach(key=>{ const p=key.split('_'); addBall(colOffsets[+p[0]], rowOffsets[+p[1]], z); });
+    frame.hTubes.forEach(key=>{ const p=key.split('_'); const c=+p[0], r=+p[1]; addTubeX(colOffsets[c], colOffsets[c+1], rowOffsets[r], z); });
+    frame.vTubes.forEach(key=>{ const p=key.split('_'); const c=+p[0], r=+p[1]; addTubeY(colOffsets[c], rowOffsets[r], rowOffsets[r+1], z); });
   }
-  frame.points.forEach(key=>{ const p=key.split('_'); addTubeZ(colOffsets[+p[0]], (+p[1])*H_, 0, -D); });
+  frame.points.forEach(key=>{ const p=key.split('_'); addTubeZ(colOffsets[+p[0]], rowOffsets[+p[1]], 0, -D); });
 
   // 面板/門/抽屜:內縮於球心平面之後,讓球接頭凸出面板表面(貼近實際外觀)
   const GAP = 0.5;
@@ -1179,7 +1270,7 @@ function rebuild3D(){
 
       const cell = getCell(r,c);
       const x0=colOffsets[c], x1=colOffsets[c+1];
-      const y0=r*H_, y1=(r+1)*H_;
+      const y0=rowOffsets[r], y1=rowOffsets[r+1];
       const w=(x1-x0)-GAP*2, h=(y1-y0)-GAP*2;
       const cx=(x0+x1)/2, cy=(y0+y1)/2;
       const typeDef = CELL_TYPES.find(t=>t.id===cell.type) || CELL_TYPES[0];
@@ -1281,7 +1372,7 @@ function rebuild3D(){
       if(!div.enabled) continue;
       // 只要有一側的格子存在就有意義(可以當作那一側的封邊板),兩側都不存在才跳過
       if(!isFilled(r,b) && !isFilled(r,b+1)) continue;
-      const ry0=r*H_, ry1=(r+1)*H_;
+      const ry0=rowOffsets[r], ry1=rowOffsets[r+1];
       const bx = colOffsets[b+1];
       const dMat = new THREE.MeshStandardMaterial({color:new THREE.Color(colorHex(getDividerColor(r,b))), metalness:0.35, roughness:0.55});
       const dGeom = new THREE.BoxGeometry(dividerThick, (ry1-ry0)-GAP*2, D-2);
@@ -1303,7 +1394,7 @@ function rebuild3D(){
   if(state.leftPanel){
     for(let r=0;r<M;r++){
       if(!isFilled(r,0)) continue; // 該層第一欄不存在,左側板無附著處
-      const ry0=r*H_, ry1=(r+1)*H_;
+      const ry0=rowOffsets[r], ry1=rowOffsets[r+1];
       const g = new THREE.BoxGeometry(sideThick, (ry1-ry0)-GAP*2, D-2);
       const m = new THREE.Mesh(g, segMat('leftPanelColors', r));
       m.position.set(-sideThick/2+recess, (ry0+ry1)/2, -D/2);
@@ -1314,7 +1405,7 @@ function rebuild3D(){
   if(state.rightPanel){
     for(let r=0;r<M;r++){
       if(!isFilled(r,N-1)) continue; // 該層最後一欄不存在,右側板無附著處
-      const ry0=r*H_, ry1=(r+1)*H_;
+      const ry0=rowOffsets[r], ry1=rowOffsets[r+1];
       const g = new THREE.BoxGeometry(sideThick, (ry1-ry0)-GAP*2, D-2);
       const m = new THREE.Mesh(g, segMat('rightPanelColors', r));
       m.position.set(totalWidth+sideThick/2-recess, (ry0+ry1)/2, -D/2);
@@ -1329,7 +1420,7 @@ function rebuild3D(){
     cols.forEach((cw,i)=>{
       const topRow = colTopRow(i);
       if(topRow===-1) return; // 整欄都不存在
-      const colTopY = (topRow+1)*H_;
+      const colTopY = rowOffsets[topRow+1];
       const cx0=colOffsets[i], cx1=colOffsets[i+1];
       const g = new THREE.BoxGeometry((cx1-cx0)-GAP*2, sideThick, D-2);
       const m = new THREE.Mesh(g, segMat('topPanelColors', i));
@@ -1342,7 +1433,7 @@ function rebuild3D(){
     cols.forEach((cw,i)=>{
       const bottomRow = colBottomRow(i);
       if(bottomRow===-1) return; // 整欄都不存在
-      const colBottomY = bottomRow*H_;
+      const colBottomY = rowOffsets[bottomRow];
       const cx0=colOffsets[i], cx1=colOffsets[i+1];
       const g = new THREE.BoxGeometry((cx1-cx0)-GAP*2, sideThick, D-2);
       const m = new THREE.Mesh(g, segMat('bottomPanelColors', i));
@@ -1366,7 +1457,7 @@ function rebuild3D(){
 function recompute(){
   const N = state.cols.length;
   const M = state.rows;
-  const H = state.rowHeight;
+  const rowHeights = state.rowHeights;
   const D = state.depth;
 
   const bom = [];
@@ -1381,14 +1472,19 @@ function recompute(){
   bom.push({label:'球接頭', spec:'—', qty:balls, unit:state.prices.ball, subtotal:ballSub});
   grand += ballSub;
 
-  const tubeTally = {35:0,50:0,75:0};
+  const tubeTally = zeroTierMap();
   frame.hTubes.forEach(key=>{
     const p = key.split('_'); const c = +p[0];
     tubeTally[state.cols[c]] += 2; // 前+後各一根
   });
-  tubeTally[H] += frame.vTubes.size*2;
+  // 每一支直向連接管的長度取決於「它所在那一層」的實際高度,層高不再統一,
+  // 所以要逐一依 vTubes 各自的層索引分別歸類,不能再整批加到單一 H 裡。
+  frame.vTubes.forEach(key=>{
+    const p = key.split('_'); const r = +p[1];
+    tubeTally[rowHeights[r]] += 2; // 前+後各一根
+  });
   tubeTally[D] += frame.points.size;
-  TIERS.forEach(t=>{
+  WH_TIERS.forEach(t=>{
     if(tubeTally[t]>0){
       const sub = tubeTally[t]*state.prices.tube[t];
       bom.push({label:'連接管', spec:t+'cm', qty:tubeTally[t], unit:state.prices.tube[t], subtotal:sub});
@@ -1397,13 +1493,26 @@ function recompute(){
   });
 
   const panelFixedPrice = state.prices['panel_fixed'];
+  // 側板依「所在那一層的實際高度」分組列出(層高不同就分成不同列,跟背板依欄寬分組是同一邏輯)。
   if(state.leftPanel){
-    let qty=0; for(let r=0;r<M;r++){ if(isFilled(r,0)) qty++; }
-    if(qty>0){ const sub=qty*panelFixedPrice[H]; bom.push({label:'左側板', spec:H+'cm(每層1片)', qty, unit:panelFixedPrice[H], subtotal:sub}); grand+=sub; }
+    const heightTally = {};
+    for(let r=0;r<M;r++){ if(isFilled(r,0)){ const h=rowHeights[r]; heightTally[h]=(heightTally[h]||0)+1; } }
+    Object.keys(heightTally).forEach(h=>{
+      const qty = heightTally[h];
+      const sub = qty*panelFixedPrice[h];
+      bom.push({label:'左側板', spec:`${h}cm(每層1片)`, qty, unit:panelFixedPrice[h], subtotal:sub});
+      grand += sub;
+    });
   }
   if(state.rightPanel){
-    let qty=0; for(let r=0;r<M;r++){ if(isFilled(r,N-1)) qty++; }
-    if(qty>0){ const sub=qty*panelFixedPrice[H]; bom.push({label:'右側板', spec:H+'cm(每層1片)', qty, unit:panelFixedPrice[H], subtotal:sub}); grand+=sub; }
+    const heightTally = {};
+    for(let r=0;r<M;r++){ if(isFilled(r,N-1)){ const h=rowHeights[r]; heightTally[h]=(heightTally[h]||0)+1; } }
+    Object.keys(heightTally).forEach(h=>{
+      const qty = heightTally[h];
+      const sub = qty*panelFixedPrice[h];
+      bom.push({label:'右側板', spec:`${h}cm(每層1片)`, qty, unit:panelFixedPrice[h], subtotal:sub});
+      grand += sub;
+    });
   }
   if(state.topPanel){
     state.cols.forEach((w,i)=>{
@@ -1436,19 +1545,35 @@ function recompute(){
     });
   }
 
-  // 格間直立隔板(兩側都要存在才有意義)
-  let dividerCount = 0, dividerSub = 0;
-  for(let r=0;r<M;r++){
-    for(let b=0;b<N-1;b++){
-      const d = getDivider(r,b);
-      if(d.enabled && (isFilled(r,b) || isFilled(r,b+1))){ dividerCount++; dividerSub += panelFixedPrice[H]; }
+  // 格間直立隔板(兩側都要存在才有意義),同樣依「所在那一層的實際高度」分組。
+  {
+    const dividerTally = {};
+    for(let r=0;r<M;r++){
+      for(let b=0;b<N-1;b++){
+        const d = getDivider(r,b);
+        if(d.enabled && (isFilled(r,b) || isFilled(r,b+1))){
+          const h = rowHeights[r];
+          dividerTally[h] = (dividerTally[h]||0)+1;
+        }
+      }
     }
-  }
-  if(dividerCount>0){
-    bom.push({label:'格間隔板', spec:H+'cm(依所在層高)', qty:dividerCount, unit:panelFixedPrice[H], subtotal:dividerSub});
-    grand += dividerSub;
+    Object.keys(dividerTally).forEach(h=>{
+      const qty = dividerTally[h];
+      const sub = qty*panelFixedPrice[h];
+      bom.push({label:'格間隔板', spec:`${h}cm(依所在層高)`, qty, unit:panelFixedPrice[h], subtotal:sub});
+      grand += sub;
+    });
   }
 
+  // 面板/門片單價表目前只依「寬度」分級(跟官方一樣是六種寬度),沒有另外依高度分級
+  // (官方實際上面板尺寸是寬x高一起決定價格,但那樣單價表會變成 6x6=36 欄,對店家設定單價
+  // 來說太繁瑣;這裡先用寬度分級當作實用的折衷做法)。層高不再統一之後,規格欄位改成同時
+  // 顯示「寬x實際高」,讓店家清楚看到真實尺寸,如果某幾層特別高/矮,價格明顯不合理時
+  // 可以自行手動調整那個寬度分級的單價,或在報價單備註裡說明。
+  const heightsVary = new Set(state.rowHeights).size > 1;
+  if(heightsVary){
+    warnings.push('目前各層高度不完全相同:面板/門片單價表只依「寬度」分級,不會因為某一層比較高/矮而自動調整單價,如有明顯落差請自行調整對應寬度的單價,或洽 USM 確認實際報價。');
+  }
   const cellCount = {};
   for(let r=0;r<M;r++){
     for(let c=0;c<N;c++){
@@ -1456,6 +1581,7 @@ function recompute(){
       const cell = getCell(r,c);
       if(cell.type==='open') continue;
       const w = state.cols[c];
+      const h = state.rowHeights[r];
       const typeDef = CELL_TYPES.find(t=>t.id===cell.type);
       let unit;
       if(typeDef.kind==='tiered'){
@@ -1464,8 +1590,8 @@ function recompute(){
         unit = state.prices[cell.type];
         if(D!==50) warnings.push(`第${r+1}層/第${c+1}欄 選用${typeDef.name},但目前深度為${D}cm(官方規格建議深度50cm),請與 USM 確認相容性。`);
       }
-      const key = cell.type+'_'+w;
-      if(!cellCount[key]) cellCount[key] = {label:typeDef.name, spec:w+'cm', qty:0, unit:unit, subtotal:0};
+      const key = cell.type+'_'+w+'_'+h;
+      if(!cellCount[key]) cellCount[key] = {label:typeDef.name, spec:`${w}cm × ${h}cm`, qty:0, unit:unit, subtotal:0};
       cellCount[key].qty += 1;
       cellCount[key].subtotal += unit;
     }
@@ -1495,11 +1621,16 @@ function bindTopControls(){
   document.getElementById('rowsCount').addEventListener('change', e=>{
     let n = Math.max(1, Math.min(6, parseInt(e.target.value)||1));
     e.target.value = n;
+    // 新增的層沿用最上面那一層目前的高度(比固定塞35cm更符合直覺:通常客戶是想「再加一層一樣的」);
+    // 減少層數時從最上面開始收,跟 renderRowHeightList/3D 的索引順序一致。
+    const fillHeight = state.rowHeights.length ? state.rowHeights[state.rowHeights.length-1] : 35;
+    while(state.rowHeights.length < n) state.rowHeights.push(fillHeight);
+    while(state.rowHeights.length > n) state.rowHeights.pop();
     state.rows = n;
     renderAll();
   });
-  document.getElementById('rowHeight').addEventListener('change', e=>{ state.rowHeight=parseInt(e.target.value); renderAll(); });
-  document.getElementById('depth').addEventListener('change', e=>{ state.depth=parseInt(e.target.value); renderAll(); });
+  // parseFloat(而非 parseInt),因為 17.5 / 39.5 是有效的官方模組尺寸(帶小數)。
+  document.getElementById('depth').addEventListener('change', e=>{ state.depth=parseFloat(e.target.value); renderAll(); });
   document.getElementById('mainColor').addEventListener('change', e=>{ state.mainColor=e.target.value; renderAll(); });
   ['leftPanel','rightPanel','topPanel','bottomPanel'].forEach(id=>{
     document.getElementById(id).addEventListener('change', e=>{ state[id]=e.target.checked; renderAll(); });
@@ -1508,7 +1639,6 @@ function bindTopControls(){
 function syncTopControlsFromState(){
   document.getElementById('colsCount').value = state.cols.length;
   document.getElementById('rowsCount').value = state.rows;
-  document.getElementById('rowHeight').value = state.rowHeight;
   document.getElementById('depth').value = state.depth;
   document.getElementById('mainColor').value = state.mainColor;
   document.getElementById('leftPanel').checked = state.leftPanel;
@@ -1533,7 +1663,7 @@ document.getElementById('importJsonFile').addEventListener('change', e=>{
   const reader = new FileReader();
   reader.onload = evt=>{
     try{
-      state = Object.assign(state, JSON.parse(evt.target.result));
+      state = Object.assign(state, migrateLoadedState(JSON.parse(evt.target.result)));
       syncTopControlsFromState();
       renderAll();
       saveState();
@@ -1544,9 +1674,9 @@ document.getElementById('importJsonFile').addEventListener('change', e=>{
 document.getElementById('resetPrices').addEventListener('click', ()=>{
   if(!confirm('確定要將所有單價歸零嗎?')) return;
   state.prices.ball = 0;
-  TIERS.forEach(t=> state.prices.tube[t]=0 );
+  state.prices.tube = zeroTierMap();
   CELL_TYPES.forEach(t=>{
-    if(t.kind==='tiered') state.prices[t.id] = {35:0,50:0,75:0};
+    if(t.kind==='tiered') state.prices[t.id] = zeroTierMap();
     else state.prices[t.id] = 0;
   });
   renderAll(); saveState();
@@ -1574,7 +1704,10 @@ document.getElementById('chatAdminToggle').addEventListener('click', ()=>{
 
 /* ---------- 總渲染 ---------- */
 function renderAll(){
+  normalizeRowHeights();
+  normalizePrices();
   renderColWidthList();
+  renderRowHeightList();
   renderAllSegColorLists();
   renderShapeEditor();
   renderGridEditor();
