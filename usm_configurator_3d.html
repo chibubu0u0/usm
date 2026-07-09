@@ -76,7 +76,10 @@
     box-shadow:var(--shadow-card);
   }
   /* 3D 預覽固定在右欄,並跟著捲動軸黏在畫面上,調整左邊設定時始終看得到 */
-  #previewCard{ position:sticky; top:20px; z-index:5; }
+  /* 預覽卡置頂:BOM/輸出已移到 .layout 之外的全寬區塊,預覽卡在自己的欄裡沒有後續兄弟,
+     sticky 捲動時不會再蓋到任何表格。 */
+  #previewCard{ position:sticky; top:20px; z-index:1; }
+  #planMini{ position:absolute; right:10px; top:10px; z-index:3; background:rgba(255,255,255,0.9); border:1px solid var(--border); border-radius:8px; cursor:grab; box-shadow:0 2px 8px rgba(20,20,20,0.08); touch-action:none; }
   @media print{ #previewCard{ position:static; } }
   label{font-size:12.5px;font-weight:600;display:block;margin:10px 0 5px;color:#4a4a48;}
   input[type=number], select, input[type=text], textarea{
@@ -162,8 +165,9 @@
   .row{display:flex;gap:8px;}
   .row > div{flex:1;}
   .colWidthList{display:flex;flex-direction:column;gap:6px;margin-top:6px;}
-  .colWidthList .item{display:flex;align-items:center;gap:8px;font-size:12px;}
+  .colWidthList .item{display:flex;align-items:center;gap:8px;font-size:12px;flex-wrap:wrap;}
   .colWidthList .item span{width:96px;color:var(--muted);flex:none;}
+  .colWidthList .item select{flex:1 1 120px;width:auto;}
   .checkline{display:flex;align-items:center;gap:8px;font-size:13px;margin:8px 0;}
   .checkline input{width:auto;accent-color:var(--accent);}
   table{width:100%;border-collapse:collapse;font-size:12.5px;}
@@ -178,6 +182,10 @@
   .cellEditor .lbl{font-size:11px;color:var(--muted);margin-bottom:2px;}
   #canvasWrap{width:100%;height:min(70vh, 560px);min-height:380px;border-radius:var(--radius-sm);position:relative;cursor:grab;background:linear-gradient(180deg,#f5f5f3,#e7e7e3);box-shadow:inset 0 0 0 1px var(--border);}
   .hint{font-size:11.5px;color:var(--muted);text-align:center;margin-top:8px;}
+  .editModeBar{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;}
+  .editModeBar button{padding:7px 12px;font-size:12.5px;}
+  .editModeBar button.emActive{background:var(--accent);color:#fff;border-color:var(--accent);box-shadow:var(--shadow-pop);}
+  #editModeHint{min-height:16px;margin-top:0;margin-bottom:8px;text-align:left;color:var(--accent-2);font-weight:600;}
   .bomTotal{font-size:17px;font-weight:700;text-align:right;margin-top:12px;color:var(--accent);}
   .warn{color:#a4370f;font-size:12.5px;margin-top:6px;}
   .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;}
@@ -263,9 +271,24 @@
         <div><label>層數(上下幾格)</label><input type="number" id="rowsCount" min="1" max="6" value="3"></div>
       </div>
       <div>
-        <label>深度(整個櫃子共用同一個深度)</label>
-        <select id="depth"><option value="25">25 cm</option><option value="35">35 cm</option><option value="50">50 cm</option><option value="75">75 cm</option></select>
+        <label>排數(往深度方向可以疊幾組獨立配置;預設1排就是一般單一深度的櫃子)</label>
+        <input type="number" id="depthLayersCount" min="1" max="4" value="1">
       </div>
+      <label style="margin-top:10px;">各排深度 / 開口方向(第1排最靠近你;每排開口可各自選擇朝前或朝後,朝後代表開口在最遠那一面,可以做背對背雙面櫃;都選朝前則是同向縱深收納)</label>
+      <div class="colWidthList" id="depthLayerList"></div>
+
+      <label style="margin-top:10px;">一鍵排列(多排時自動計算各排位移/旋轉,排完仍可微調)</label>
+      <div class="editModeBar" style="margin-bottom:4px;">
+        <button type="button" class="secondary" id="layoutLineBtn">─ 直線</button>
+        <button type="button" class="secondary" id="layoutLBtn">∟ L型</button>
+        <button type="button" class="secondary" id="layoutUBtn">⊔ U型</button>
+        <button type="button" class="secondary" id="layoutZBtn">Z 字型</button>
+      </div>
+      <div class="note">L/Z 型需 2~3 排、U 型需 3 排,排數不足會自動加排(沿用最後一排設定)。想要完全客製的排列:直接在 3D 預覽右上角的「俯視小地圖」拖曳任一排移動、雙擊旋轉45°。轉角處重合的球接頭/鋼管,畫面與報價都會自動只算一份。</div>
+
+      <label style="margin-top:10px;">目前正在編輯哪一排(下面的面板/門片/顏色/隔板都是這一排各自獨立的設定;有多排時才會顯示切換鈕)</label>
+      <div class="actions" id="layerEditTabs" style="margin-bottom:4px;"></div>
+
       <label style="margin-top:10px;">各欄寬度</label>
       <div class="colWidthList" id="colWidthList"></div>
 
@@ -275,18 +298,19 @@
       <label style="margin-top:10px;">主色(預設套用於門片/面板,各段/各格若不個別指定顏色則跟隨此色)</label>
       <select id="mainColor"></select>
 
+
       <div class="checkline"><input type="checkbox" id="leftPanel" checked> <label style="margin:0;">左側板</label></div>
       <div class="checkline"><input type="checkbox" id="rightPanel" checked> <label style="margin:0;">右側板</label></div>
       <div class="checkline"><input type="checkbox" id="topPanel" checked> <label style="margin:0;">頂板</label></div>
       <div class="checkline"><input type="checkbox" id="bottomPanel" checked> <label style="margin:0;">底板</label></div>
 
-      <label style="margin-top:10px;">左側板顏色(依層獨立,不選則跟隨主色)</label>
+      <label style="margin-top:10px;">左側板顏色(依層、依排各自獨立,不選則跟隨主色;上方切換排別可分別設定)</label>
       <div class="colWidthList" id="leftPanelColorList"></div>
-      <label style="margin-top:10px;">右側板顏色(依層獨立,不選則跟隨主色)</label>
+      <label style="margin-top:10px;">右側板顏色(依層、依排各自獨立,不選則跟隨主色;上方切換排別可分別設定)</label>
       <div class="colWidthList" id="rightPanelColorList"></div>
-      <label style="margin-top:10px;">頂板顏色(依欄獨立,不選則跟隨主色)</label>
+      <label style="margin-top:10px;">頂板顏色(依欄、依排各自獨立,不選則跟隨主色;上方切換排別可分別設定)</label>
       <div class="colWidthList" id="topPanelColorList"></div>
-      <label style="margin-top:10px;">底板顏色(依欄獨立,不選則跟隨主色)</label>
+      <label style="margin-top:10px;">底板顏色(依欄、依排各自獨立,不選則跟隨主色;上方切換排別可分別設定)</label>
       <div class="colWidthList" id="bottomPanelColorList"></div>
     </div>
 
@@ -298,7 +322,7 @@
 
     <div class="card no-print">
       <h2>4. 每格面板 / 門片</h2>
-      <div class="note">由下往上第1層開始。可個別選擇類型與顏色(不選色則套用主色),每格也可獨立勾選是否加背板。玻璃面板/玻璃門固定為清玻璃,沒有 RAL 上色選項(與實際產品一致)。抽屜選項暫時隱藏,效果調整好之後會再加回來。已在上方移除的格子不會出現在這裡。</div>
+      <div class="note">由下往上第1層開始。可個別選擇類型、顏色、層板顏色(不選色則套用主色),每格也可獨立勾選是否加背板。玻璃面板/玻璃門固定為清玻璃,沒有 RAL 上色選項(與實際產品一致)。抽屜選項暫時隱藏,效果調整好之後會再加回來。已在上方移除的格子不會出現在這裡。有多排深度時,用上方「2. 整體結構設定」卡片裡的排別切換鈕來選擇目前編輯哪一排,這裡的內容會跟著切換。</div>
       <div class="gridEditor" id="gridEditor"></div>
     </div>
 
@@ -318,27 +342,61 @@
   <div>
     <div class="card" id="previewCard">
       <h2>3D 立體預覽</h2>
-      <div id="canvasWrap"></div>
-      <div class="hint">拖曳旋轉、滾輪縮放</div>
+      <div class="editModeBar no-print" id="editModeBar">
+        <button type="button" class="emActive" data-mode="view">🖐 旋轉檢視</button>
+        <button type="button" class="secondary" data-mode="tube">｜ 逐根鋼管</button>
+        <button type="button" class="secondary" data-mode="frame">▦ 加支架(整格)</button>
+        <button type="button" class="secondary" data-mode="panel">▢ 加面板</button>
+        <button type="button" class="secondary" data-mode="shelf">▬ 加層板</button>
+        <button type="button" class="secondary" data-mode="remove">✕ 移除格</button>
+        <button type="button" id="openPlanEditorBtn" style="margin-left:auto;" title="開啟大尺寸俯視編輯器:拖曳每排位置(自動吸附)、雙擊旋轉,做出 L/U/Z 或任意排列">⛶ 排列編輯器</button>
+        <button type="button" class="secondary" id="bakeBtn" title="把目前的框架轉成明確鋼管清單:之後移除格/加格都不會再動到框架,逐根鋼管直接編這份清單">🔒 固化框架</button>
+        <button type="button" class="secondary" id="resetTubesBtn" title="清掉所有手動補/拆的鋼管紀錄,框架回到依格子自動產生的正確狀態(格子、面板、顏色都不會動到)">⟲ 重設逐根鋼管</button>
+        <button type="button" class="secondary" id="reframeBtn">⟳ 重新置中</button>
+      </div>
+      <div id="editModeHint" class="no-print"></div>
+      <div id="canvasWrap">
+        <canvas id="planMini" width="210" height="140" title="俯視平面圖:拖曳任一排移動、雙擊旋轉45°(粗邊=開口方向,▼=你的位置)"></canvas>
+      </div>
+      <div class="hint">右上角小圖 = 俯視平面(粗邊為開口方向,朝下即朝向你)。可直接在小圖上「拖曳」任一排移動位置、「雙擊」旋轉45°,做出 Z 字型以外的任何客製排列。</div>
+      <div class="hint">左鍵拖曳旋轉、滾輪縮放、Shift(或右鍵/中鍵)拖曳平移;切換上方模式後可直接在預覽點擊編輯(作用於目前正在編輯的那一排)。多排要排 L 型/十字時,用左欄「各排深度」下方的「左右X/前後Z/旋轉°」把各排拍開避免穿插。</div>
       <div class="note" id="dimsSummary"></div>
     </div>
+  </div>
+</div>
 
-    <div class="card">
-      <h2>零件清單(BOM)</h2>
-      <table id="bomTable">
-        <thead><tr><th class="rowlabel">項目</th><th>規格</th><th>數量</th><th>單價</th><th>小計</th></tr></thead>
-        <tbody></tbody>
-      </table>
-      <div class="bomTotal" id="grandTotal"></div>
-      <div class="warn" id="warnBox"></div>
+<!-- 排列編輯器:大尺寸俯視拖曳介面(拖曳移動+磁性吸附,雙擊旋轉45°) -->
+<div id="planEditorOverlay" class="no-print" style="display:none; position:fixed; inset:0; background:rgba(22,24,26,0.5); z-index:100;">
+  <div class="card" style="max-width:820px; margin:4vh auto 0; padding:18px 20px;">
+    <h2 style="margin-bottom:10px;">排列編輯器(俯視)</h2>
+    <div class="editModeBar" style="margin-bottom:8px;">
+      <button type="button" class="secondary" id="peLineBtn">─ 直線</button>
+      <button type="button" class="secondary" id="peLBtn">∟ L型</button>
+      <button type="button" class="secondary" id="peUBtn">⊔ U型</button>
+      <button type="button" class="secondary" id="peZBtn">Z 字型</button>
+      <button type="button" class="emActive" id="peSnapBtn" style="margin-left:auto;">🧲 吸附:開</button>
+      <button type="button" class="secondary" id="peCloseBtn">✕ 關閉</button>
     </div>
+    <canvas id="planEditorCanvas" width="780" height="470" style="width:100%; border:1px solid var(--border); border-radius:8px; background:#fbfbf9; cursor:grab; touch-action:none;"></canvas>
+    <div class="note" style="margin-top:8px;">拖曳任一排移動:角落靠近其他排時會<b>自動吸附</b>(轉角柱共用、報價不重複);沒吸附時自動貼齊 2.5cm 網格。<b>雙擊</b>旋轉 45°;按住 <b>Shift</b> 拖曳 = 自由移動不吸附。數值同步到左欄「每排擺放微調」。</div>
+  </div>
+</div>
 
-    <div class="card no-print">
-      <h2>輸出</h2>
-      <div class="actions">
-        <button id="printBtn">列印 / 另存為 PDF</button>
-      </div>
-    </div>
+<!-- BOM 與輸出移到獨立的全寬區塊:跟置頂的 3D 預覽卡分開,捲動時彼此不會互相遮蓋 -->
+<div class="card" style="margin-top:4px;">
+  <h2>零件清單(BOM)</h2>
+  <table id="bomTable">
+    <thead><tr><th class="rowlabel">項目</th><th>規格</th><th>數量</th><th>單價</th><th>小計</th></tr></thead>
+    <tbody></tbody>
+  </table>
+  <div class="bomTotal" id="grandTotal"></div>
+  <div class="warn" id="warnBox"></div>
+</div>
+
+<div class="card no-print">
+  <h2>輸出</h2>
+  <div class="actions">
+    <button id="printBtn">列印 / 另存為 PDF</button>
   </div>
 </div>
 
@@ -349,17 +407,24 @@ const COLORS = [
   {id:'ral9010', name:'純白 RAL9010', hex:'#F3F3EF'},
   {id:'ral7035', name:'淺灰 RAL7035', hex:'#D3D4D2'},
   {id:'ral5011', name:'鋼藍 RAL5011', hex:'#233240'},
-  {id:'ral5010', name:'龍膽藍 RAL5010', hex:'#194266'},
+  {id:'ral5010', name:'龍膽藍 RAL5010', hex:'#0E518D'},
   {id:'usmgreen', name:'USM綠', hex:'#4C7A34'},
   {id:'ral1004', name:'金黃 RAL1004', hex:'#E1AE13'},
-  {id:'usmbrown', name:'USM棕', hex:'#6C4A2E'},
-  {id:'ral2004', name:'純橘 RAL2004', hex:'#D9560E'},
+  {id:'usmbrown', name:'USM棕', hex:'#5C4531'},
+  {id:'ral2004', name:'純橘 RAL2004', hex:'#E25303'},
   {id:'usmbeige', name:'USM米', hex:'#D8C7A7'},
-  {id:'ral6003', name:'橄欖綠 RAL6003', hex:'#54622F'},
+  {id:'ral6003', name:'橄欖綠 RAL6003', hex:'#4A4F35'},
   {id:'usmred', name:'USM紅', hex:'#7C2430'},
-  {id:'usmgrey', name:'USM中灰', hex:'#8C877E'},
+  {id:'usmgrey', name:'USM中灰', hex:'#8E9190'},
   {id:'ral7016', name:'炭黑 RAL7016', hex:'#383E42'},
   {id:'ral9011', name:'石墨黑 RAL9011', hex:'#1B1D1F'}
+];
+
+// 支架(球接頭/鋼管/把手等五金)的金屬表面:鍍鉻(標準)/黑/白。
+const FRAME_FINISHES = [
+  {id:'chrome', name:'鍍鉻(標準亮銀)'},
+  {id:'black',  name:'黑色'},
+  {id:'white',  name:'白色'}
 ];
 
 const CELL_TYPES = [
@@ -396,28 +461,59 @@ const GLASS_TINT_HEX = '#dfe9e6';
 const ENABLED_CELL_TYPES = CELL_TYPES.filter(t=>t.category!=='drawer');
 
 /* ---------- 狀態 ---------- */
-let state = {
-  cols: [75,75,50],
-  rows: 3,
-  rowHeights: [35,35,35], // 每一層各自的高度(cm),r=0 是最下面那一層,索引方式跟其他座標一致
-  depth: 35,
-  mainColor: 'ral9011',
-  leftPanel:true, rightPanel:true, topPanel:true, bottomPanel:true,
-  cells: {},
-  backPanels: {}, // "r_c" -> true 表示這一格有背板(每格獨立可選,不設定=沒有背板)
-  shelfColors: {}, // "r_c" -> colorId(每一格層板獨立),不設定則跟隨主色
-  leftPanelColors: {}, // r -> colorId(左側板每一層獨立)
-  rightPanelColors: {}, // r -> colorId(右側板每一層獨立)
-  topPanelColors: {}, // c -> colorId(頂板每一欄獨立)
-  bottomPanelColors: {}, // c -> colorId(底板每一欄獨立)
-  dividers: {}, // "r_b" -> {enabled, color} : 第r層、第b欄與第b+1欄之間的直立隔板(b: 0 ~ 欄數-2)
-  mask: {}, // "r_c" -> false 表示這一格被移除(不存在);沒有紀錄=預設存在
-  prices: { ball:0, tube: zeroTierMap() }
-};
-CELL_TYPES.forEach(t=>{
-  if(t.kind==='tiered') state.prices[t.id] = zeroTierMap();
-  else state.prices[t.id] = 0;
-});
+function makeDefaultState(){
+  const cab = {
+    // 欄數/每欄寬度是「每排各自獨立」:layerCols[d] = 第 d 排自己的欄寬陣列。
+    // 層數/每層高度也是「每排各自獨立」:layerRowHeights[d] = 第 d 排自己的層高陣列
+    // (r=0 是最下面那一層,索引方式跟其他座標一致)。預設每一排都從同一份欄寬/層高開始,
+    // 之後可以各自調整。
+    layerCols: [[75,75,50]],
+    layerRowHeights: [[35,35,35]],
+    // 深度方向可以疊多「排」(depthLayers[i] = 第 i 排的深度 cm,索引 0 = 最靠近你這排)。
+    // depthFacing[i] = 'front'(開口朝你這面,預設)或 'back'(開口朝最遠那面,可做背對背雙面櫃)。
+    // 大部分情況只有 1 排,行為跟舊版單一深度完全一樣。
+    depthLayers: [35],
+    depthFacing: ['front'],
+    // 每一排可自由微調的擺放:dx=左右位移、dz=前後位移(cm),rot=在開口方向之外再額外旋轉的角度(度)。
+    // 預設全 0(維持自動堆疊)。多排要排成 L 型/十字/錯開避免穿插時,手動調這三個值把各排拍開。
+    rowShift: [{dx:0,dz:0,rot:0}],
+    mainColor: 'ral9011',
+    frameColor: 'chrome', // 支架五金表面:chrome/black/white
+    leftPanel:true, rightPanel:true, topPanel:true, bottomPanel:true,
+    // 下面這些跟「面板/顏色/隔板/外觀輪廓」有關的設定,全部都是「每排各自獨立」(d 排前綴),
+    // 跟 layerCols/layerRowHeights 用同一種概念。
+    cells: {}, // "d_r_c" -> {type,color}:第 d 排、第 r 層、第 c 欄的面板/門片(每排各自獨立配置)
+    backPanels: {}, // "d_r_c" -> true 表示第 d 排這一格有背板(每格獨立可選,不設定=沒有背板)
+    shelfColors: {}, // "d_r_c" -> colorId(每一排、每一格層板獨立),不設定則跟隨主色
+    leftPanelTypes: {}, // "d_r" -> 型別id(左側板每層可選面板/門片型別,''=固定面板)
+    rightPanelTypes: {}, // "d_r" -> 型別id(右側板每層可選)
+    leftPanelColors: {}, // "d_r" -> colorId(左側板每一排、每一層獨立)
+    rightPanelColors: {}, // "d_r" -> colorId(右側板每一排、每一層獨立)
+    topPanelColors: {}, // "d_c" -> colorId(頂板每一排、每一欄獨立)
+    bottomPanelColors: {}, // "d_c" -> colorId(底板每一排、每一欄獨立)
+    dividers: {}, // "d_r_b" -> {enabled, color} : 第d排、第r層、第b欄與第b+1欄之間的直立隔板(b: 0 ~ 欄數-2)
+    mask: {}, // "d_r_c" -> false 表示這一格被移除(不存在);沒有紀錄=預設存在(每排各自獨立的外觀輪廓)
+    // 逐根鋼管的加/拆:疊加在「由格子自動推導出來的框架」之上。key 格式:
+    //   "d_H_c_r" = 第 d 排、水平線 r(0~層數)、欄段 c(0~欄數-1)的橫向鋼管
+    //   "d_V_c_r" = 第 d 排、垂直線 c(0~欄數)、層段 r(0~層數-1)的縱向鋼管
+    // 值 true=強制補上這根、false=強制拆掉這根;沒有紀錄=跟隨自動框架。
+    frameEdits: {},
+    // 固化框架:null=自動(依格子+frameEdits 推導);陣列=[每排一份 {H:[],V:[],Z:[]} 明確鋼管清單],
+    // 固化後框架不再跟著格子自動增減,逐根鋼管直接編這份清單(匯出/存檔都會帶著)。
+    explicitFrame: null,
+    // 使用者自由放置的水平面板(層板/頂板/底板都用這個,不再綁定格子存不存在)。
+    // key:"d_r_c" = 第 d 排、水平線 r(0~層數)、第 c 欄;值為 colorId('' = 主色)。
+    freeHPanels: {},
+    __anchored: true, // rowShift 以「前左角」為基準點(新制;舊存檔載入時自動換算)
+    prices: { ball:0, tube: zeroTierMap() }
+  };
+  CELL_TYPES.forEach(t=>{
+    if(t.kind==='tiered') cab.prices[t.id] = zeroTierMap();
+    else cab.prices[t.id] = 0;
+  });
+  return cab;
+}
+let state = makeDefaultState();
 
 /* ---------- localStorage ---------- */
 const LS_KEY='usm_configurator_3d_state_v1';
@@ -428,29 +524,158 @@ const LS_KEY='usm_configurator_3d_state_v1';
 // 這樣 Object.assign 才會用回填好的陣列正確覆蓋掉預設值。讀 localStorage 存檔、匯入 JSON
 // 兩個路徑都要走這段共用的遷移邏輯。
 function migrateLoadedState(parsed){
+  // rowShift 基準點從「排中心(參照全體最大寬/總深)」改為「每排前左角」。舊存檔要換算一次,
+  // 讓視覺位置不變:新 anchor = 舊視覺中心 - 旋轉後的 (W/2, -D/2)。未旋轉的排換算後數值不變。
+  if(parsed && typeof parsed==='object' && !parsed.__anchored && Array.isArray(parsed.rowShift) && Array.isArray(parsed.depthLayers)){
+    const cols = Array.isArray(parsed.layerCols) ? parsed.layerCols : null;
+    const widths = [];
+    for(let i=0;i<parsed.depthLayers.length;i++){
+      widths.push(cols && cols[i] ? cols[i].reduce((x,y)=>x+y,0) : (Array.isArray(parsed.cols)? parsed.cols.reduce((x,y)=>x+y,0) : 200));
+    }
+    const off=[0]; for(let i=0;i<parsed.depthLayers.length;i++) off.push(off[i]-parsed.depthLayers[i]);
+    const FACE={front:0, right:Math.PI/2, back:Math.PI, left:-Math.PI/2};
+    parsed.rowShift.forEach((sh,d)=>{
+      if(!sh || d>=parsed.depthLayers.length) return;
+      const W=widths[d]||0, D=parsed.depthLayers[d]||0;
+      const face=(Array.isArray(parsed.depthFacing)&&parsed.depthFacing[d])||'front';
+      const ang=(FACE[face]||0) + ((sh.rot||0)*Math.PI/180);
+      const cxw = W/2 + (sh.dx||0);            // 舊視覺中心(對齊到新框架)
+      const czw = off[d] - D/2 + (sh.dz||0);
+      const c=Math.cos(ang), sn=Math.sin(ang);
+      const ax = cxw - ((W/2)*c + (-D/2)*sn);  // anchor = 中心 - R·(W/2, -D/2)
+      const az = czw - (-(W/2)*sn + (-D/2)*c);
+      sh.dx = +ax.toFixed(1);
+      sh.dz = +(az - off[d]).toFixed(1);
+    });
+  }
+  if(parsed && typeof parsed==='object') parsed.__anchored = true;
+  // 新增欄位(側板型別/固化框架/支架顏色)在舊存檔裡不存在:補上安全預設,Object.assign 後才不會是 undefined。
+  if(parsed && typeof parsed==='object'){
+    if(!parsed.leftPanelTypes || typeof parsed.leftPanelTypes!=='object') parsed.leftPanelTypes={};
+    if(!parsed.rightPanelTypes || typeof parsed.rightPanelTypes!=='object') parsed.rightPanelTypes={};
+    if(parsed.explicitFrame!==undefined && !Array.isArray(parsed.explicitFrame)) parsed.explicitFrame=null;
+    if(typeof parsed.frameColor!=='string') parsed.frameColor='chrome';
+  }
   if(parsed && typeof parsed==='object' && !Array.isArray(parsed.rowHeights) && typeof parsed.rows==='number' && parsed.rows>0){
     const fallback = (typeof parsed.rowHeight==='number' && parsed.rowHeight>0) ? parsed.rowHeight : 35;
     parsed.rowHeights = new Array(parsed.rows).fill(fallback);
   }
+  // 舊版存檔只有單一 state.depth 數字(單排深度),沒有 depthLayers/depthFacing 陣列。
+  // 跟 rowHeights 一樣,要在 Object.assign 合併之前先把這些資料轉成新格式,不然沒辦法正確
+  // 回填(state 預設已經有 depthLayers 了,合併後看起來會一直「已存在」)。
+  if(parsed && typeof parsed==='object' && !Array.isArray(parsed.depthLayers)){
+    const fallbackDepth = (typeof parsed.depth==='number' && parsed.depth>0) ? parsed.depth : 35;
+    parsed.depthLayers = [fallbackDepth];
+    parsed.depthFacing = ['front'];
+  }
+  // 舊版存檔只有一份全排共用的 state.cols,還沒有「每排各自欄寬」的 layerCols。遷移時
+  // 每一排都先沿用同一份舊欄寬(視覺上跟遷移前完全一樣),之後使用者才各自調整。
+  if(parsed && typeof parsed==='object' && !Array.isArray(parsed.layerCols) && Array.isArray(parsed.cols)){
+    const layerCount = Array.isArray(parsed.depthLayers) ? parsed.depthLayers.length : 1;
+    parsed.layerCols = [];
+    for(let i=0;i<layerCount;i++) parsed.layerCols.push(parsed.cols.slice());
+  }
+  // 舊版存檔只有一份全排共用的 state.rowHeights,還沒有「每排各自層高」的 layerRowHeights。
+  // 遷移時每一排都先沿用同一份舊層高(視覺上跟遷移前完全一樣),之後使用者才各自調整。
+  if(parsed && typeof parsed==='object' && !Array.isArray(parsed.layerRowHeights) && Array.isArray(parsed.rowHeights)){
+    const layerCount = Array.isArray(parsed.depthLayers) ? parsed.depthLayers.length : 1;
+    parsed.layerRowHeights = [];
+    for(let i=0;i<layerCount;i++) parsed.layerRowHeights.push(parsed.rowHeights.slice());
+  }
+  if(parsed && typeof parsed==='object'){
+    // 面板/背板/層板顏色/隔板/外觀輪廓現在都是「每排各自獨立」(d 排前綴),但舊格式的 key
+    // 沒有排別。這裡的重新前綴是冪等的(已經是新格式的 key 不會被影響),所以每次讀取存檔都
+    // 能安全執行——涵蓋兩種情況:完全沒有 depthLayers 的很舊存檔,以及已經有 depthLayers、
+    // 但顏色/隔板/外觀輪廓 key 還沒升級成排別前綴格式的「中間版本」存檔。
+    // cells/backPanels/shelfColors/dividers/mask 舊格式都是兩段式 key(例如 "r_c"、"r_b"),
+    // 新格式是三段式(排別前綴,例如 "0_r_c"、"0_r_b")。
+    ['cells','backPanels','shelfColors','dividers','mask'].forEach(prop=>{
+      if(parsed[prop] && typeof parsed[prop]==='object'){
+        const migrated = {};
+        Object.keys(parsed[prop]).forEach(k=>{
+          const newKey = (k.split('_').length===2) ? ('0_'+k) : k;
+          migrated[newKey] = parsed[prop][k];
+        });
+        parsed[prop] = migrated;
+      }
+    });
+    // leftPanelColors/rightPanelColors/topPanelColors/bottomPanelColors 舊格式是單一數字索引
+    // key(沒有底線,例如 "0"、"1"),新格式是「排別_索引」(例如 "0_0"、"0_1")。
+    ['leftPanelColors','rightPanelColors','topPanelColors','bottomPanelColors'].forEach(prop=>{
+      if(parsed[prop] && typeof parsed[prop]==='object'){
+        const migrated = {};
+        Object.keys(parsed[prop]).forEach(k=>{
+          const newKey = (k.indexOf('_')===-1) ? ('0_'+k) : k;
+          migrated[newKey] = parsed[prop][k];
+        });
+        parsed[prop] = migrated;
+      }
+    });
+  }
   return parsed;
+}
+// 把「讀進來的資料」套用到 state(相容舊存檔:直接 Object.assign 覆蓋預設值即可)。
+function applyLoadedRoot(parsed){
+  if(parsed && typeof parsed==='object'){
+    state = Object.assign(makeDefaultState(), migrateLoadedState(parsed));
+  }
 }
 function loadState(){
   try{
     const raw = localStorage.getItem(LS_KEY);
-    if(raw){ state = Object.assign(state, migrateLoadedState(JSON.parse(raw))); }
+    if(raw){ applyLoadedRoot(JSON.parse(raw)); }
   }catch(e){ console.warn('load state failed', e); }
 }
 function saveState(){
   try{ localStorage.setItem(LS_KEY, JSON.stringify(state)); }catch(e){}
 }
-// 確保 state.rowHeights 陣列長度永遠跟 state.rows 一致,並且相容舊版存檔
-// (舊版只有單一 state.rowHeight 數字,沒有每層各自的陣列)。在 renderAll() 一開始呼叫,
-// 這樣不管是讀取舊存檔、匯入舊版 JSON、或是 AI 精靈/欄數調整等任何途徑造成不同步,都會自動修正。
-function normalizeRowHeights(){
-  if(!Array.isArray(state.rowHeights)) state.rowHeights = [];
-  const fallback = (typeof state.rowHeight==='number' && state.rowHeight>0) ? state.rowHeight : 35;
-  while(state.rowHeights.length < state.rows) state.rowHeights.push(fallback);
-  if(state.rowHeights.length > state.rows) state.rowHeights.length = state.rows;
+// 確保 state.depthLayers/state.depthFacing 陣列永遠存在且長度一致,並相容舊版存檔
+// (舊版只有單一 state.depth 數字)。在 renderAll() 一開始呼叫。
+function normalizeDepthLayers(){
+  if(!Array.isArray(state.depthLayers) || state.depthLayers.length===0){
+    const fallback = (typeof state.depth==='number' && state.depth>0) ? state.depth : 35;
+    state.depthLayers = [fallback];
+  }
+  if(!Array.isArray(state.depthFacing)) state.depthFacing = [];
+  while(state.depthFacing.length < state.depthLayers.length) state.depthFacing.push('front');
+  if(state.depthFacing.length > state.depthLayers.length) state.depthFacing.length = state.depthLayers.length;
+  // 舊存檔只有 front/back 兩種;若讀到無法辨識的值(或未來擴充後又縮回),一律退回 front。
+  const validFacings = FACING_LIST.map(f=>f.id);
+  state.depthFacing = state.depthFacing.map(v=> validFacings.indexOf(v)===-1 ? 'front' : v);
+  // 每排的自由擺放參數(dx/dz/rot),長度對齊 depthLayers,缺的補 0(相容沒有這欄位的舊存檔)。
+  if(!Array.isArray(state.rowShift)) state.rowShift = [];
+  while(state.rowShift.length < state.depthLayers.length) state.rowShift.push({dx:0,dz:0,rot:0});
+  if(state.rowShift.length > state.depthLayers.length) state.rowShift.length = state.depthLayers.length;
+  state.rowShift = state.rowShift.map(s=>{
+    s = (s && typeof s==='object') ? s : {};
+    return {dx:(+s.dx||0), dz:(+s.dz||0), rot:(+s.rot||0)};
+  });
+}
+// 確保 state.layerCols 陣列長度永遠跟 state.depthLayers 一致,而且每一排至少有一份合理的
+// 欄寬陣列(相容舊版存檔,或排數增加時要補一份新的欄寬給新排)。在 renderAll() 一開始呼叫。
+function normalizeLayerCols(){
+  if(!Array.isArray(state.layerCols)) state.layerCols = [];
+  const fallbackCols = state.layerCols.length && Array.isArray(state.layerCols[0]) && state.layerCols[0].length
+    ? state.layerCols[0].slice() : [75,75,50];
+  while(state.layerCols.length < state.depthLayers.length) state.layerCols.push(fallbackCols.slice());
+  if(state.layerCols.length > state.depthLayers.length) state.layerCols.length = state.depthLayers.length;
+  state.layerCols.forEach((cols,i)=>{
+    if(!Array.isArray(cols) || cols.length===0) state.layerCols[i] = fallbackCols.slice();
+  });
+}
+// 確保 state.layerRowHeights 陣列長度永遠跟 state.depthLayers 一致,而且每一排至少有一份
+// 合理的層高陣列(相容舊版存檔,或排數增加時要補一份層高給新排)。邏輯跟 normalizeLayerCols
+// 完全對稱,只是換成層高。在 renderAll() 一開始呼叫,這樣不管是讀取舊存檔、匯入舊版 JSON、
+// 或是 AI 精靈/層數調整等任何途徑造成不同步,都會自動修正。
+function normalizeLayerRowHeights(){
+  if(!Array.isArray(state.layerRowHeights)) state.layerRowHeights = [];
+  const fallbackHeights = state.layerRowHeights.length && Array.isArray(state.layerRowHeights[0]) && state.layerRowHeights[0].length
+    ? state.layerRowHeights[0].slice() : [35,35,35];
+  while(state.layerRowHeights.length < state.depthLayers.length) state.layerRowHeights.push(fallbackHeights.slice());
+  if(state.layerRowHeights.length > state.depthLayers.length) state.layerRowHeights.length = state.depthLayers.length;
+  state.layerRowHeights.forEach((heights,i)=>{
+    if(!Array.isArray(heights) || heights.length===0) state.layerRowHeights[i] = fallbackHeights.slice();
+  });
 }
 // state.prices 是用 Object.assign 淺層合併回來的(讀舊存檔或匯入 JSON 時),如果對方缺少
 // 任何一個尺寸分級的 key(例如舊存檔是規格修正前只有 35/50/75 三個 key 的年代存的、或是之後
@@ -474,50 +699,81 @@ function normalizePrices(){
 /* ---------- 工具 ---------- */
 function colorHex(id){ const c=COLORS.find(c=>c.id===id); return c? c.hex : '#ccc'; }
 function colorName(id){ const c=COLORS.find(c=>c.id===id); return c? c.name : id; }
-function cellKey(r,c){ return r+'_'+c; }
-function getCell(r,c){
-  const k=cellKey(r,c);
+/* ---------- 每一排的開口方向(前後左右四向) ----------
+   front = 開口朝前(靠近你,+Z),right = 朝右(+X),back = 朝後(-Z),left = 朝左(-X)。
+   3D 呈現的作法:每一排都以「開口朝前」的方式在自己的局部座標建好,再把整排的群組
+   繞垂直軸旋轉到對應方向,所以四向共用同一套建模邏輯,不需要各方向各寫一份。 */
+const FACING_LIST = [
+  {id:'front', label:'開口朝前(靠近你)', shortLabel:'開口朝前', angle:0},
+  {id:'right', label:'開口朝右', shortLabel:'開口朝右', angle:Math.PI/2},
+  {id:'back',  label:'開口朝後(最遠那面)', shortLabel:'開口朝後', angle:Math.PI},
+  {id:'left',  label:'開口朝左', shortLabel:'開口朝左', angle:-Math.PI/2}
+];
+function facingDef(id){ return FACING_LIST.find(f=>f.id===id) || FACING_LIST[0]; }
+function facingAngle(id){ return facingDef(id).angle; }
+function facingShort(id){ return facingDef(id).shortLabel; }
+// d = 排別(深度方向第幾排,0 = 最靠近你這排),預設 0,單排使用時可以省略這個參數,
+// 行為跟舊版完全一樣。
+function cellKey(r,c,d){ return (d===undefined?0:d)+'_'+r+'_'+c; }
+function getCell(r,c,d){
+  const k=cellKey(r,c,d);
   if(!state.cells[k]) state.cells[k] = {type:'open', color:''};
   return state.cells[k];
 }
-function getShelfColor(r,c){
-  const id = state.shelfColors[r+'_'+c];
+// d = 排別,預設 0(單排使用時可省略,行為跟舊版完全一樣)。
+function getShelfColor(r,c,d){
+  const id = state.shelfColors[cellKey(r,c,d)];
   return id ? id : state.mainColor;
 }
-function getSegColor(map, key){
-  const id = state[map][key];
+function segKey(index,d){ return (d===undefined?0:d)+'_'+index; }
+function getSegColor(map, index, d){
+  const id = state[map][segKey(index,d)];
   return id ? id : state.mainColor;
 }
-function getDivider(r,b){
-  const k=r+'_'+b;
+function getDivider(r,b,d){
+  const k=(d===undefined?0:d)+'_'+r+'_'+b;
   if(!state.dividers[k]) state.dividers[k] = {enabled:false, color:''};
   return state.dividers[k];
 }
-function getDividerColor(r,b){
-  const d = getDivider(r,b);
-  return d.color ? d.color : state.mainColor;
+function getDividerColor(r,b,d){
+  const div = getDivider(r,b,d);
+  return div.color ? div.color : state.mainColor;
 }
-function getBackPanel(r,c){
-  return !!state.backPanels[r+'_'+c];
+function getBackPanel(r,c,d){
+  const v = state.backPanels[cellKey(r,c,d)];
+  if(!v) return null;
+  if(v===true) return {type:'panel_fixed', color:''}; // 舊格式(布林)自動視為固定面板
+  return v;
+}
+// 側板每段的型別(''/未設定 = 固定面板)。
+function getSegType(map, index, d){
+  return (state[map] && state[map][segKey(index,d)]) || 'panel_fixed';
 }
 
-/* ---------- 外觀輪廓(不規則高度)相關 ---------- */
-function getMask(r,c){
-  const v = state.mask[r+'_'+c];
+/* ---------- 每一排各自的欄位(欄數/寬度)+ 層數/層高 ---------- */
+// 欄位配置(欄數/每欄寬度)、層數/層高現在都是「每排各自獨立」,跟外觀輪廓(mask)一樣。
+function layerCols(d){ return state.layerCols[d===undefined?0:d]; }
+function layerRowHeights(d){ return state.layerRowHeights[d===undefined?0:d]; }
+
+/* ---------- 外觀輪廓(不規則高度)相關,現在也是「每排各自獨立」 ---------- */
+function getMask(r,c,d){
+  const v = state.mask[cellKey(r,c,d)];
   return v === false ? false : true; // 預設存在
 }
-function isFilled(r,c){
-  if(r<0||r>=state.rows||c<0||c>=state.cols.length) return false;
-  return getMask(r,c);
+function isFilled(r,c,d){
+  const cols = layerCols(d), rowsArr = layerRowHeights(d);
+  if(r<0||r>=rowsArr.length||c<0||c>=cols.length) return false;
+  return getMask(r,c,d);
 }
 // 依目前的「外觀輪廓」計算實際需要的球接頭位置、橫向管、縱向管(只在真正有格子的地方才產生,
-// 兩個相鄰欄高度不同時,共用的那一支直柱會沿著較高欄位的高度往上延伸)
-function computeFrameSets(){
-  const M=state.rows, N=state.cols.length;
+// 兩個相鄰欄高度不同時,共用的那一支直柱會沿著較高欄位的高度往上延伸)。現在依「排別」各自計算
+// 一份(每排的欄數/寬度、層數、外觀輪廓都可能不一樣)。
+function computeFrameSets(d){
+  const M=layerRowHeights(d).length, N=layerCols(d).length;
   const points=new Set(), hTubes=new Set(), vTubes=new Set();
   for(let r=0;r<M;r++){
     for(let c=0;c<N;c++){
-      if(!isFilled(r,c)) continue;
+      if(!isFilled(r,c,d)) continue;
       points.add(c+'_'+r); points.add((c+1)+'_'+r); points.add(c+'_'+(r+1)); points.add((c+1)+'_'+(r+1));
       hTubes.add(c+'_'+r); hTubes.add(c+'_'+(r+1));
       vTubes.add(c+'_'+r); vTubes.add((c+1)+'_'+r);
@@ -525,12 +781,127 @@ function computeFrameSets(){
   }
   return {points,hTubes,vTubes};
 }
-function colTopRow(c){ // 該欄最高的存在層(由上往下找),都沒有回傳 -1
-  for(let r=state.rows-1;r>=0;r--) if(isFilled(r,c)) return r;
+// 逐根鋼管:把 state.frameEdits 疊加到「格子自動推導的框架」之上,回傳最終要畫的框架。
+// H tube key "c_r"(橫向:水平線 r、欄段 c);V tube key "c_r"(縱向:垂直線 c、層段 r)。
+// 真正「一根一根」的實體鋼管模型。每一排有近端平面(pl=0)與遠端平面(pl=1)兩個面,
+// 加上連接兩面的深度鋼管。這樣點一下就只加/減「一根實體鋼管」,而不是一次生出一個方框。
+//   H(橫向)key "pl_c_r" = 平面 pl、水平線 r(0~層數)、欄段 c(0~欄數-1)
+//   V(縱向)key "pl_c_r" = 平面 pl、垂直線 c(0~欄數)、層段 r(0~層數-1)
+//   Z(深度)key "c_r"   = 節點(c,r)連接近端↔遠端的那一根
+// state.frameEdits 疊加在「格子自動推導」之上:
+//   "d_H_pl_c_r" / "d_V_pl_c_r" -> true(補這根) / false(拆這根)
+//   "d_Z_c_r"                    -> true / false
+function computePhysicalFrame(d){
+  const M=layerRowHeights(d).length, N=layerCols(d).length;
+  const H=new Set(), V=new Set(), Z=new Set();
+  // 已固化:框架 = 這一排的明確鋼管清單(不再依格子自動推導;逐根鋼管直接編這份)。
+  // 清單裡超出目前欄/層範圍的項目自動忽略(例如固化後又減少欄數)。
+  if(Array.isArray(state.explicitFrame) && state.explicitFrame[d]){
+    const ef = state.explicitFrame[d];
+    (ef.H||[]).forEach(k=>{ const p=k.split('_'); const pl=+p[0],c=+p[1],r=+p[2]; if(pl>=0&&pl<=1&&c>=0&&c<N&&r>=0&&r<=M) H.add(k); });
+    (ef.V||[]).forEach(k=>{ const p=k.split('_'); const pl=+p[0],c=+p[1],r=+p[2]; if(pl>=0&&pl<=1&&c>=0&&c<=N&&r>=0&&r<M) V.add(k); });
+    (ef.Z||[]).forEach(k=>{ const p=k.split('_'); const c=+p[0],r=+p[1]; if(c>=0&&c<=N&&r>=0&&r<=M) Z.add(k); });
+    const balls=new Set();
+    H.forEach(k=>{const p=k.split('_');const pl=+p[0],c=+p[1],r=+p[2];balls.add(pl+'_'+c+'_'+r);balls.add(pl+'_'+(c+1)+'_'+r);});
+    V.forEach(k=>{const p=k.split('_');const pl=+p[0],c=+p[1],r=+p[2];balls.add(pl+'_'+c+'_'+r);balls.add(pl+'_'+c+'_'+(r+1));});
+    Z.forEach(k=>{const p=k.split('_');const c=+p[0],r=+p[1];balls.add('0_'+c+'_'+r);balls.add('1_'+c+'_'+r);});
+    return {H,V,Z,balls};
+  }
+  for(let r=0;r<M;r++) for(let c=0;c<N;c++){
+    if(!isFilled(r,c,d)) continue;
+    for(let pl=0;pl<2;pl++){
+      H.add(pl+'_'+c+'_'+r); H.add(pl+'_'+c+'_'+(r+1));
+      V.add(pl+'_'+c+'_'+r); V.add(pl+'_'+(c+1)+'_'+r);
+    }
+    Z.add(c+'_'+r); Z.add((c+1)+'_'+r); Z.add(c+'_'+(r+1)); Z.add((c+1)+'_'+(r+1));
+  }
+  const edits = state.frameEdits || {};
+  Object.keys(edits).forEach(k=>{
+    const p = k.split('_');
+    if(+p[0]!==d) return;
+    const fam=p[1], val=edits[k];
+    if(fam==='H' && p.length===5){ const pl=+p[2],c=+p[3],r=+p[4]; if(pl<0||pl>1||c<0||c>=N||r<0||r>M) return; const key=pl+'_'+c+'_'+r; if(val)H.add(key);else H.delete(key); }
+    else if(fam==='V' && p.length===5){ const pl=+p[2],c=+p[3],r=+p[4]; if(pl<0||pl>1||c<0||c>N||r<0||r>=M) return; const key=pl+'_'+c+'_'+r; if(val)V.add(key);else V.delete(key); }
+    else if(fam==='Z' && p.length===4){ const c=+p[2],r=+p[3]; if(c<0||c>N||r<0||r>M) return; const key=c+'_'+r; if(val)Z.add(key);else Z.delete(key); }
+  });
+  // 球接頭 = 每個平面上有鋼管碰到的節點(自動跟著鋼管加減)
+  const balls=new Set();
+  H.forEach(k=>{const p=k.split('_');const pl=+p[0],c=+p[1],r=+p[2];balls.add(pl+'_'+c+'_'+r);balls.add(pl+'_'+(c+1)+'_'+r);});
+  V.forEach(k=>{const p=k.split('_');const pl=+p[0],c=+p[1],r=+p[2];balls.add(pl+'_'+c+'_'+r);balls.add(pl+'_'+c+'_'+(r+1));});
+  Z.forEach(k=>{const p=k.split('_');const c=+p[0],r=+p[1];balls.add('0_'+c+'_'+r);balls.add('1_'+c+'_'+r);});
+  return {H,V,Z,balls};
+}
+function hasFrameEdits(d){
+  const edits = state.frameEdits || {};
+  return Object.keys(edits).some(k=> k.split('_')[0]===String(d));
+}
+// 具「實體容差」的空間去重:交叉/交界處兩排共用的球接頭或鋼管,手動擺放時幾乎不可能剛好對到
+// 0.1cm,所以改用約一顆球接頭大小的容差(tol cm)來判定「這是同一顆接頭 / 同一根鋼管」。
+// 用鄰桶檢查避免「剛好跨過格線邊界就漏判」;而網格內相異節點至少相隔 17.5cm,遠大於容差,
+// 所以絕不會誤把兩個真正不同的節點合併。3D 畫面與 BOM 報價都用同一個工廠,數字保證一致。
+function makeDedupe(tol){
+  const cell = tol>0 ? tol : 1;
+  const balls = new Map(), tubes = new Map();
+  const near = (p,x,y,z)=> Math.abs(p[0]-x)<=tol && Math.abs(p[1]-y)<=tol && Math.abs(p[2]-z)<=tol;
+  function seenBall(x,y,z){
+    const cx=Math.round(x/cell), cy=Math.round(y/cell), cz=Math.round(z/cell);
+    for(let i=-1;i<=1;i++) for(let j=-1;j<=1;j++) for(let k=-1;k<=1;k++){
+      const list = balls.get((cx+i)+'_'+(cy+j)+'_'+(cz+k));
+      if(list){ for(let n=0;n<list.length;n++) if(near(list[n],x,y,z)) return true; }
+    }
+    const key=cx+'_'+cy+'_'+cz; if(!balls.has(key)) balls.set(key,[]); balls.get(key).push([x,y,z]); return false;
+  }
+  function tubeMatch(t,a,b){
+    return (near(t.a,a[0],a[1],a[2])&&near(t.b,b[0],b[1],b[2])) || (near(t.a,b[0],b[1],b[2])&&near(t.b,a[0],a[1],a[2]));
+  }
+  // 水平面板的去重:位置(含容差)「和」尺寸(世界座標下的長寬,容差1cm)都吻合才算同一片。
+  // 只比中心點會把「中心剛好靠近、但大小不同」的兩片不同板子誤判成重複(欄寬不規則的
+  // 轉角排列就會發生),導致大片的那塊被吃掉、畫面破洞。
+  const panels = new Map();
+  function seenPanel(x,y,z,w,dep){
+    const cx=Math.round(x/cell), cy=Math.round(y/cell), cz=Math.round(z/cell);
+    for(let i=-1;i<=1;i++) for(let j=-1;j<=1;j++) for(let k=-1;k<=1;k++){
+      const list = panels.get((cx+i)+'_'+(cy+j)+'_'+(cz+k));
+      if(list){ for(let n=0;n<list.length;n++){ const p=list[n];
+        if(near(p,x,y,z) && Math.abs(p[3]-w)<=1 && Math.abs(p[4]-dep)<=1) return true; } }
+    }
+    const key=cx+'_'+cy+'_'+cz; if(!panels.has(key)) panels.set(key,[]); panels.get(key).push([x,y,z,w,dep]); return false;
+  }
+  function seenTube(a,b){
+    const mx=(a[0]+b[0])/2, my=(a[1]+b[1])/2, mz=(a[2]+b[2])/2;
+    const cx=Math.round(mx/cell), cy=Math.round(my/cell), cz=Math.round(mz/cell);
+    for(let i=-1;i<=1;i++) for(let j=-1;j<=1;j++) for(let k=-1;k<=1;k++){
+      const list = tubes.get((cx+i)+'_'+(cy+j)+'_'+(cz+k));
+      if(list){ for(let n=0;n<list.length;n++) if(tubeMatch(list[n],a,b)) return true; }
+    }
+    const key=cx+'_'+cy+'_'+cz; if(!tubes.has(key)) tubes.set(key,[]); tubes.get(key).push({a,b}); return false;
+  }
+  return { seenBall, seenTube, seenPanel };
+}
+// 去重容差:排列編輯器的磁性吸附會讓「真正共用」的轉角完全重合(誤差<0.1cm),
+// 所以容差只需要吃掉浮點/四捨五入誤差即可。之前設 3cm 太寬——欄寬不規則的排在轉角
+// 附近會有距離 1~3cm 的「不同」零件(頂板/鋼管),被誤判成重複而少畫,造成破圖破洞。
+const DEDUPE_TOL = 1.2; // cm,略大於球接頭半徑;真正重合的必然在此範圍內,鄰近但相異的不會被誤吃
+function isPhysPresent(d,fam,pl,c,r){
+  const f = computePhysicalFrame(d);
+  if(fam==='H') return f.H.has(pl+'_'+c+'_'+r);
+  if(fam==='V') return f.V.has(pl+'_'+c+'_'+r);
+  return f.Z.has(c+'_'+r);
+}
+// 自由水平面板(層板/頂板/底板通用),key "d_r_c";值 colorId('' = 主色)。
+function freeHKey(r,c,d){ return (d===undefined?0:d)+'_'+r+'_'+c; }
+function hasFreeHPanel(r,c,d){ return (freeHKey(r,c,d) in state.freeHPanels); }
+function getFreeHPanelColor(r,c,d){
+  const v = state.freeHPanels[freeHKey(r,c,d)];
+  return (v===undefined) ? null : (v || state.mainColor);
+}
+function colTopRow(c,d){ // 該欄最高的存在層(由上往下找),都沒有回傳 -1
+  for(let r=layerRowHeights(d).length-1;r>=0;r--) if(isFilled(r,c,d)) return r;
   return -1;
 }
-function colBottomRow(c){ // 該欄最低的存在層,都沒有回傳 -1
-  for(let r=0;r<state.rows;r++) if(isFilled(r,c)) return r;
+function colBottomRow(c,d){ // 該欄最低的存在層,都沒有回傳 -1
+  const M = layerRowHeights(d).length;
+  for(let r=0;r<M;r++) if(isFilled(r,c,d)) return r;
   return -1;
 }
 
@@ -624,7 +995,7 @@ function wizardBuildCellPlan(rows, cols, purposeId, budgetId){
   return {cellsByRC, dividers, backPanels};
 }
 // 目前對話收集到的需求輪廓(不會存進 localStorage,重新整理頁面就會重新開始對話)
-let chatProfile = { purposeId:null, W:null, H:null, D:null, rowsCount:null, colsCount:null, rowHeightsCm:null, colWidthsCm:null, rowCellTypes:null, mainColor:null, boldStyle:false, budgetId:null, __generated:false };
+let chatProfile = { purposeId:null, W:null, H:null, D:null, rowsCount:null, colsCount:null, rowHeightsCm:null, colWidthsCm:null, rowCellTypes:null, mainColor:null, boldStyle:false, budgetId:null, layout:null, __generated:false };
 
 function chatDescribeProfile(p){
   const purposeDesc = (WIZARD_PURPOSE_RULES.find(r=>r.id===p.purposeId)||{}).desc || '一般用途(開放/封閉交錯)';
@@ -642,7 +1013,8 @@ function chatDescribeProfile(p){
   const typesDesc = (p.rowCellTypes && p.rowCellTypes.length)
     ? '\n各層面板(上到下):' + p.rowCellTypes.map(id => (CELL_TYPES.find(t=>t.id===id)||{}).name || id).join('、')
     : '';
-  return `用途:${purposeDesc}\n尺寸:${dimsDesc}${typesDesc}\n風格:${styleDesc}\n預算:${budgetDesc}`;
+  const layoutDesc = p.layout ? ({line:'一直線', l:'L型(轉角)', u:'U型(ㄇ字)', z:'Z字型'}[p.layout] || '') : '';
+  return `用途:${purposeDesc}\n尺寸:${dimsDesc}${typesDesc}${layoutDesc?`\n排列:${layoutDesc}`:''}\n風格:${styleDesc}\n預算:${budgetDesc}`;
 }
 // 把目前收集到的 profile 實際套用到 state(欄寬/層數/層高/深度/主色/每格配置),
 // 邏輯跟先前單次版精靈的「套用」流程一樣,只是資料來源改成累積的 chatProfile。
@@ -656,7 +1028,8 @@ function applyWizardProfile(profile){
   // AI 精靈預設套用「統一層高」(客戶還沒講到「這幾層要各自不同高度」這種細節);
   // 但如果客戶明確講出「每一層各自要多高」(profile.rowHeightsCm),就直接照客戶講的套用,
   // 不再統一——USM 系統本身允許每一層各自不同高度,不應該告訴客戶「所有層必須同高」。
-  let colsArr = state.cols.slice(), rows = state.rows, rowHeightTier = (state.rowHeights && state.rowHeights[0]) || 35, depth = state.depth;
+  // AI 精靈只管理「第1排(索引0)」的欄寬,套用時會把整個 layerCols 重設成只有這一排。
+  let colsArr = layerCols(0).slice(), rows = layerRowHeights(0).length, rowHeightTier = (layerRowHeights(0) && layerRowHeights(0)[0]) || 35, depth = (state.depthLayers && state.depthLayers[0]) || 35;
   let customRowHeights = null; // 由下往上排列好的完整陣列,非 null 時會直接取代「統一層高」的邏輯
 
   // 客戶明確指定「每一欄各自的寬度」(由左到右)時,每個數字各自抓最接近的官方模組尺寸,
@@ -675,7 +1048,7 @@ function applyWizardProfile(profile){
   }
 
   if(profile.rowHeightsCm && profile.rowHeightsCm.length){
-    // AI 回報的陣列是「由上到下」(比較符合客戶描述習慣的順序),但 state.rowHeights 內部
+    // AI 回報的陣列是「由上到下」(比較符合客戶描述習慣的順序),但 layerRowHeights 內部
     // 是「由下往上」存放(索引 0 = 最下面那一層,跟其他座標系一致),所以要反過來。
     const snapped = profile.rowHeightsCm.map(h => snapToNearestTier(h, WH_TIERS));
     rows = snapped.length;
@@ -695,10 +1068,14 @@ function applyWizardProfile(profile){
   const budgetId = profile.budgetId || 'mid';
   const mainColor = profile.boldStyle ? state.mainColor : (profile.mainColor || state.mainColor);
 
-  state.cols = colsArr;
-  state.rows = rows;
-  state.rowHeights = customRowHeights || new Array(rows).fill(rowHeightTier);
-  state.depth = depth;
+  // AI 精靈重設回只有 1 排(跟 depthLayers 一樣),所以 layerCols/layerRowHeights 也只留一份給第1排。
+  state.layerCols = [colsArr];
+  state.layerRowHeights = [customRowHeights || new Array(rows).fill(rowHeightTier)];
+  // AI 精靈只理解「單一深度」的需求(客戶還沒講到「往深度方向再疊一排」這種細節),
+  // 所以套用時一律重設成 1 排、開口朝前——跟舊版行為完全一樣。如果客戶想要多排背對背/
+  // 縱深收納,那是進階設定,要在「整體結構設定」卡片裡手動調整排數,套用精靈不會動到它。
+  state.depthLayers = [depth];
+  state.depthFacing = ['front'];
   state.mainColor = mainColor;
 
   // 清空舊的每格設定,套用全新規劃(維持乾淨、一致的結果)
@@ -707,15 +1084,18 @@ function applyWizardProfile(profile){
   state.shelfColors = {};
   state.leftPanelColors = {};
   state.rightPanelColors = {};
+  state.leftPanelTypes = {};
+  state.rightPanelTypes = {};
   state.topPanelColors = {};
   state.bottomPanelColors = {};
   state.dividers = {};
   state.backPanels = {};
 
+  // 精靈規劃出來的都是「第1排(索引0)」的配置,key 要加上排別前綴。
   const plan = wizardBuildCellPlan(rows, colsArr.length, purposeId, budgetId);
-  Object.keys(plan.cellsByRC).forEach(key=>{ state.cells[key] = plan.cellsByRC[key]; });
-  Object.keys(plan.dividers).forEach(key=>{ state.dividers[key] = plan.dividers[key]; });
-  Object.keys(plan.backPanels).forEach(key=>{ state.backPanels[key] = true; });
+  Object.keys(plan.cellsByRC).forEach(key=>{ state.cells['0_'+key] = plan.cellsByRC[key]; });
+  Object.keys(plan.dividers).forEach(key=>{ state.dividers['0_'+key] = plan.dividers[key]; });
+  Object.keys(plan.backPanels).forEach(key=>{ state.backPanels['0_'+key] = true; });
 
   // 客戶明確指定「某一層要用什麼面板/門片」時(由上到下,例如「最上層開放、第二層下掀門」),
   // 直接覆蓋掉用途/預算自動安排的結果,整層(該層每一欄)都套用客戶指定的類型。
@@ -727,7 +1107,7 @@ function applyWizardProfile(profile){
       if(validIds.indexOf(typeId)===-1) continue;
       const r = rows-1-i; // AI 陣列由上到下第 i 個 → 內部由下往上第 r 層
       for(let c=0;c<colsArr.length;c++){
-        const key = r+'_'+c;
+        const key = '0_'+r+'_'+c;
         if(state.cells[key]) state.cells[key] = {type:typeId, color:''};
       }
     }
@@ -744,6 +1124,14 @@ function applyWizardProfile(profile){
 
   renderAll();
   syncTopControlsFromState();
+  // 客戶有指定排列形狀(L/U/Z/直線)時,自動把排數補齊並排好位置。
+  // 注意:上面精靈把配置重設成單排了,所以 L/U/Z 會自動加排(沿用第1排的欄層設定)。
+  if(profile.layout){
+    if(profile.layout==='l') applyLayoutL();
+    else if(profile.layout==='u') applyLayoutU();
+    else if(profile.layout==='z') applyLayoutZ();
+    else applyLayoutLine();
+  }
 }
 function addChatBubble(text, from){
   const wrap = document.getElementById('chatMessages');
@@ -831,6 +1219,11 @@ function mergeAiProfileUpdate(profileUpdate){
   if(profileUpdate.budget && WIZARD_BUDGET_RULES.some(r=>r.id===profileUpdate.budget)){
     chatProfile.budgetId = profileUpdate.budget;
   }
+  // 排列形狀:客戶說「L型/轉角」「ㄇ字型/U型」「Z字型/S型」「一直線」時,AI 會回報 layout,
+  // 套用配置後會自動呼叫對應的一鍵排列把多排拍好位置。
+  if(profileUpdate.layout && ['line','l','u','z'].indexOf(profileUpdate.layout)!==-1){
+    chatProfile.layout = profileUpdate.layout;
+  }
 }
 // 第一次生成時附上完整摘要(用途/尺寸/風格/預算),讓客戶確認 AI 有聽懂;
 // 之後每次更新只給簡短提示,不再重複整段摘要——避免每一輪都印出同樣一大段文字,
@@ -853,7 +1246,9 @@ async function callAiBackend(endpoint, text, history){
   const res = await fetch(endpoint, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ message: text, history })
+    // profile = 前端已記錄的需求輪廓:後端會把它放進 system 提示,讓 AI 每一輪都
+    // 明確知道「哪些已經問到了」——就算對話歷史被截斷也不會忘記、不會重複追問(跳針)。
+    body: JSON.stringify({ message: text, history, profile: chatProfile })
   });
   if(!res.ok) throw new Error('AI 後端回應狀態碼 '+res.status);
   const data = await res.json();
@@ -887,16 +1282,14 @@ async function processChatMessage(text){
     }));
     const aiSaysReady = !!(data.profileUpdate && data.profileUpdate.ready_to_generate);
 
-    // 還沒生成過:完全信任 AI 判斷的 ready_to_generate 決定何時該產生第一版配置。
-    // 已經生成過一次:只要這輪 AI 有回報任何新資訊就直接重新套用,不再用本地規則
-    // 要求「四個欄位都填齊」才動作——這正是之前對話容易卡在同一題、感覺跳針的主因。
-    // 如果這輪沒有新資訊(客戶只是閒聊、道謝等),就不會無意義地重複套用/重複提示。
-    if((aiSaysReady && !chatProfile.__generated) || (chatProfile.__generated && profileHasNewInfo)){
+    // vibe 模式:只要這一輪有抓到任何新資訊(或 AI 判斷可以生成),就直接排一版出來——
+    // 先看到東西再慢慢調,而不是被問卷式盤問。完全沒有新資訊(閒聊/道謝)就純聊天回應。
+    if(aiSaysReady || profileHasNewInfo){
       chatMaybeGenerate(data.assistantText || '');
     } else if(data.assistantText){
       addChatBubble(data.assistantText, 'bot');
     } else {
-      addChatBubble('可以再多告訴我一點想法嗎?(例如用途、大概尺寸、喜歡的風格或預算)', 'bot');
+      addChatBubble('跟我隨意描述就好——放什麼、想要什麼感覺、擺在哪,一句話我就能先排一版出來。', 'bot');
     }
   } catch(err){
     console.warn('AI 後端呼叫失敗:', err);
@@ -905,11 +1298,11 @@ async function processChatMessage(text){
   }
 }
 function chatReset(){
-  chatProfile = { purposeId:null, W:null, H:null, D:null, rowsCount:null, colsCount:null, rowHeightsCm:null, colWidthsCm:null, rowCellTypes:null, mainColor:null, boldStyle:false, budgetId:null, __generated:false };
+  chatProfile = { purposeId:null, W:null, H:null, D:null, rowsCount:null, colsCount:null, rowHeightsCm:null, colWidthsCm:null, rowCellTypes:null, mainColor:null, boldStyle:false, budgetId:null, layout:null, __generated:false };
   chatHistory = [];
   document.getElementById('chatMessages').innerHTML = '';
   setChatStatus();
-  addChatBubble('您好!我是幫您規劃收納櫃的小幫手,用聊天的方式跟我說說需求就可以了,例如「我要一個電視櫃,現代簡約風,預算中等,寬200高150」,或者想到什麼說什麼也沒關係,我會繼續問您細節。', 'bot');
+  addChatBubble('嗨!隨意跟我聊聊你想要的感覺就好——例如「客廳放黑膠跟音響,想要沉穩一點」「工作室的白色開放書牆」「玄關矮櫃,L型轉角」。不用講規格,我會直接先排一版給你看,再一起慢慢調。', 'bot');
 }
 
 /* ---------- 下拉選單初始化 ---------- */
@@ -927,12 +1320,16 @@ function populateColorSelect(sel, includeBlankAsMain){
   });
 }
 populateColorSelect(document.getElementById('mainColor'), false);
+// 支架顏色固定為官方標準鍍鉻,不提供切換(官方沒有其他支架顏色)。
 
-/* ---------- 欄寬設定 ---------- */
+/* ---------- 欄寬設定(現在是「目前正在編輯那一排」自己的欄寬,每排各自獨立) ---------- */
 function renderColWidthList(){
   const wrap=document.getElementById('colWidthList');
   wrap.innerHTML='';
-  state.cols.forEach((w,i)=>{
+  // 欄數輸入框也要跟著目前排別同步(切換排別時,上面的「欄數」數字要顯示那一排實際的欄數)。
+  const colsCountInput = document.getElementById('colsCount');
+  if(colsCountInput) colsCountInput.value = layerCols(currentEditLayer).length;
+  layerCols(currentEditLayer).forEach((w,i)=>{
     const div=document.createElement('div');
     div.className='item';
     div.innerHTML=`<span>第${i+1}欄</span>`;
@@ -944,18 +1341,21 @@ function renderColWidthList(){
       sel.appendChild(opt);
     });
     // 用 parseFloat 而不是 parseInt,因為 17.5 / 39.5 是有效的官方模組尺寸(帶小數)。
-    sel.addEventListener('change', ()=>{ state.cols[i]=parseFloat(sel.value); renderAll(); });
+    sel.addEventListener('change', ()=>{ layerCols(currentEditLayer)[i]=parseFloat(sel.value); renderAll(); });
     div.appendChild(sel);
     wrap.appendChild(div);
   });
 }
 
-/* ---------- 層高設定(每一層各自獨立,邏輯跟欄寬完全對稱) ---------- */
+/* ---------- 層高設定(每一排各自獨立,邏輯跟欄寬完全對稱) ---------- */
 function renderRowHeightList(){
   const wrap=document.getElementById('rowHeightList');
   if(!wrap) return;
   wrap.innerHTML='';
-  state.rowHeights.forEach((h,r)=>{
+  // 層數輸入框也要跟著目前排別同步(切換排別時,上面的「層數」數字要顯示那一排實際的層數)。
+  const rowsCountInput = document.getElementById('rowsCount');
+  if(rowsCountInput) rowsCountInput.value = layerRowHeights(currentEditLayer).length;
+  layerRowHeights(currentEditLayer).forEach((h,r)=>{
     const div=document.createElement('div');
     div.className='item';
     div.innerHTML=`<span>第${r+1}層(由下往上數)</span>`;
@@ -966,46 +1366,119 @@ function renderRowHeightList(){
       if(t===h) opt.selected=true;
       sel.appendChild(opt);
     });
-    sel.addEventListener('change', ()=>{ state.rowHeights[r]=parseFloat(sel.value); renderAll(); });
+    sel.addEventListener('change', ()=>{ layerRowHeights(currentEditLayer)[r]=parseFloat(sel.value); renderAll(); });
     div.appendChild(sel);
     wrap.appendChild(div);
   });
 }
 
-/* ---------- 側板 / 頂底板 分段顏色(每一段各自獨立) ---------- */
-function renderSegColorList(containerId, count, labelFn, stateKey){
+/* ---------- 深度排數設定(每一排各自獨立的深度+開口方向) ---------- */
+function renderDepthLayerList(){
+  const wrap=document.getElementById('depthLayerList');
+  if(!wrap) return;
+  wrap.innerHTML='';
+  state.depthLayers.forEach((d,i)=>{
+    const div=document.createElement('div');
+    div.className='item';
+    div.innerHTML=`<span>第${i+1}排</span>`;
+    const sel=document.createElement('select');
+    DEPTH_TIERS.forEach(t=>{
+      const opt=document.createElement('option');
+      opt.value=t; opt.textContent=t+' cm';
+      if(t===d) opt.selected=true;
+      sel.appendChild(opt);
+    });
+    sel.addEventListener('change', ()=>{ state.depthLayers[i]=parseFloat(sel.value); renderAll(); });
+    div.appendChild(sel);
+    const facingSel=document.createElement('select');
+    FACING_LIST.forEach(f=>{
+      const opt=document.createElement('option');
+      opt.value=f.id; opt.textContent=f.label;
+      if(f.id===(state.depthFacing[i]||'front')) opt.selected=true;
+      facingSel.appendChild(opt);
+    });
+    facingSel.addEventListener('change', ()=>{ state.depthFacing[i]=facingSel.value; renderAll(); });
+    div.appendChild(facingSel);
+    wrap.appendChild(div);
+
+    // 這一排的自由擺放:左右X / 前後Z / 額外旋轉°(多排要排 L 型、十字或錯開避免穿插時用)。
+    if(!state.rowShift[i]) state.rowShift[i] = {dx:0,dz:0,rot:0};
+    const sh = state.rowShift[i];
+    const shiftDiv=document.createElement('div');
+    shiftDiv.className='item';
+    shiftDiv.style.cssText='flex-wrap:wrap;padding-left:8px;';
+    shiftDiv.innerHTML=`<span style="width:100%;color:#7a7a76;">↳ 第${i+1}排擺放</span>`;
+    [['dx','左右X'],['dz','前後Z'],['rot','旋轉°']].forEach(pair=>{
+      const key=pair[0];
+      const lab=document.createElement('label');
+      lab.style.cssText='font-size:11px;margin:0 4px 0 0;font-weight:600;color:#7a7a76;';
+      lab.textContent=pair[1];
+      const inp=document.createElement('input');
+      inp.type='number'; inp.value=sh[key]||0;
+      inp.step = (key==='rot') ? 15 : 5;
+      inp.style.cssText='width:64px;';
+      inp.addEventListener('change', ()=>{ state.rowShift[i][key]=parseFloat(inp.value)||0; renderAll(); });
+      shiftDiv.appendChild(lab); shiftDiv.appendChild(inp);
+    });
+    wrap.appendChild(shiftDiv);
+  });
+}
+
+/* ---------- 側板 / 頂底板 分段顏色(每一段、每一排各自獨立) ---------- */
+function renderSegColorList(containerId, count, labelFn, stateKey, d, typeKey){
   const wrap=document.getElementById(containerId);
   wrap.innerHTML='';
   for(let i=0;i<count;i++){
     const div=document.createElement('div');
     div.className='item';
     div.innerHTML=`<span>${labelFn(i)}</span>`;
+    const k = segKey(i,d);
+    // 左/右側板每段可選「型別」(固定面板/沖孔/玻璃/門片...),預設固定面板。
+    if(typeKey){
+      if(!state[typeKey] || typeof state[typeKey]!=='object') state[typeKey]={};
+      const tSel=document.createElement('select');
+      ENABLED_CELL_TYPES.filter(t=>t.kind==='tiered' && t.id!=='open').forEach(t=>{
+        const o=document.createElement('option'); o.value=t.id;
+        o.textContent=(t.id==='panel_fixed') ? '固定側板(標準)' : t.name;
+        tSel.appendChild(o);
+      });
+      tSel.value = state[typeKey][k] || 'panel_fixed';
+      tSel.addEventListener('change', ()=>{
+        if(tSel.value && tSel.value!=='panel_fixed') state[typeKey][k]=tSel.value; else delete state[typeKey][k];
+        renderAll();
+      });
+      div.appendChild(tSel);
+    }
     const sel=document.createElement('select');
     populateColorSelect(sel, true);
-    sel.value = state[stateKey][i] || '';
+    sel.value = state[stateKey][k] || '';
     sel.addEventListener('change', ()=>{
-      if(sel.value) state[stateKey][i]=sel.value; else delete state[stateKey][i];
+      if(sel.value) state[stateKey][k]=sel.value; else delete state[stateKey][k];
       renderAll();
     });
     div.appendChild(sel);
     wrap.appendChild(div);
   }
 }
+// 這幾份顏色清單(側板/頂底板)現在都是「每排各自獨立」,所以要傳入目前正在編輯的排別
+// (currentEditLayer,跟每格面板編輯器共用同一個排別狀態,兩邊切換排別時會一起同步)。
 function renderAllSegColorLists(){
-  renderSegColorList('leftPanelColorList', state.rows, i=>`第${i+1}層`, 'leftPanelColors');
-  renderSegColorList('rightPanelColorList', state.rows, i=>`第${i+1}層`, 'rightPanelColors');
-  renderSegColorList('topPanelColorList', state.cols.length, i=>`第${i+1}欄`, 'topPanelColors');
-  renderSegColorList('bottomPanelColorList', state.cols.length, i=>`第${i+1}欄`, 'bottomPanelColors');
+  renderSegColorList('leftPanelColorList', layerRowHeights(currentEditLayer).length, i=>`第${i+1}層`, 'leftPanelColors', currentEditLayer, 'leftPanelTypes');
+  renderSegColorList('rightPanelColorList', layerRowHeights(currentEditLayer).length, i=>`第${i+1}層`, 'rightPanelColors', currentEditLayer, 'rightPanelTypes');
+  renderSegColorList('topPanelColorList', layerCols(currentEditLayer).length, i=>`第${i+1}欄`, 'topPanelColors', currentEditLayer);
+  renderSegColorList('bottomPanelColorList', layerCols(currentEditLayer).length, i=>`第${i+1}欄`, 'bottomPanelColors', currentEditLayer);
 }
 
-/* ---------- 外觀輪廓:可點擊格線 ---------- */
+/* ---------- 外觀輪廓:可點擊格線(現在是「目前正在編輯那一排」自己的外觀輪廓) ---------- */
 function renderShapeEditor(){
   const wrap=document.getElementById('shapeEditor');
   wrap.innerHTML='';
-  wrap.style.gridTemplateColumns = `repeat(${state.cols.length}, 1fr)`;
-  for(let r=state.rows-1; r>=0; r--){
-    for(let c=0;c<state.cols.length;c++){
-      const filled = isFilled(r,c);
+  const d = currentEditLayer;
+  const cols = layerCols(d);
+  wrap.style.gridTemplateColumns = `repeat(${cols.length}, 1fr)`;
+  for(let r=layerRowHeights(d).length-1; r>=0; r--){
+    for(let c=0;c<cols.length;c++){
+      const filled = isFilled(r,c,d);
       const btn=document.createElement('button');
       btn.type='button';
       btn.textContent = `${r+1}層/${c+1}欄`;
@@ -1014,7 +1487,7 @@ function renderShapeEditor(){
           ? 'border:1px solid #1e2f3c;background:#1e2f3c;color:#fff;'
           : 'border:1px dashed #ccc;background:#f5f5f3;color:#aaa;');
       btn.addEventListener('click', ()=>{
-        state.mask[r+'_'+c] = !filled;
+        state.mask[cellKey(r,c,d)] = !filled;
         renderAll();
       });
       wrap.appendChild(btn);
@@ -1022,14 +1495,34 @@ function renderShapeEditor(){
   }
 }
 
-/* ---------- 每格編輯器 ---------- */
+/* ---------- 目前正在編輯哪一排(控制每格編輯器 + 側/頂/底/層板顏色 + 隔板,這些設定
+   現在都是「每排各自獨立」,共用同一個排別切換狀態) ---------- */
+let currentEditLayer = 0;
+function renderGridEditorLayerTabs(){
+  const wrap=document.getElementById('layerEditTabs');
+  if(!wrap) return;
+  wrap.innerHTML='';
+  if(currentEditLayer >= state.depthLayers.length) currentEditLayer = 0;
+  if(state.depthLayers.length <= 1) return; // 單排時不需要多顯示一排切換UI
+  state.depthLayers.forEach((d,i)=>{
+    const btn=document.createElement('button');
+    btn.type='button';
+    const facingLabel = facingShort(state.depthFacing[i]||'front');
+    btn.textContent = `第${i+1}排(${d}cm,${facingLabel})`;
+    if(i!==currentEditLayer) btn.className='secondary';
+    btn.addEventListener('click', ()=>{ currentEditLayer=i; renderAll(); });
+    wrap.appendChild(btn);
+  });
+}
 function renderGridEditor(){
   const wrap=document.getElementById('gridEditor');
   wrap.innerHTML='';
-  wrap.style.gridTemplateColumns = `repeat(${state.cols.length}, 1fr)`;
-  for(let r=state.rows-1; r>=0; r--){
-    for(let c=0;c<state.cols.length;c++){
-      if(!isFilled(r,c)){
+  const d = currentEditLayer;
+  const cols = layerCols(d);
+  wrap.style.gridTemplateColumns = `repeat(${cols.length}, 1fr)`;
+  for(let r=layerRowHeights(d).length-1; r>=0; r--){
+    for(let c=0;c<cols.length;c++){
+      if(!isFilled(r,c,d)){
         const ph=document.createElement('div');
         ph.className='cellEditor';
         ph.style.cssText='display:flex;align-items:center;justify-content:center;color:#bbb;font-size:11px;border-style:dashed;background:#f5f5f3;min-height:60px;text-align:center;';
@@ -1037,12 +1530,12 @@ function renderGridEditor(){
         wrap.appendChild(ph);
         continue;
       }
-      const cell=getCell(r,c);
+      const cell=getCell(r,c,d);
       // 抽屜類暫時停用:若格子先前已設為抽屜,自動還原成開放層
       if(cell.type.indexOf('drawer')===0) cell.type='open';
       const box=document.createElement('div');
       box.className='cellEditor';
-      box.innerHTML=`<div class="lbl">第${r+1}層 / 第${c+1}欄 (${state.cols[c]}cm)</div>`;
+      box.innerHTML=`<div class="lbl">第${r+1}層 / 第${c+1}欄 (${cols[c]}cm)</div>`;
       const typeSel=document.createElement('select');
       ENABLED_CELL_TYPES.forEach(t=>{
         const opt=document.createElement('option');
@@ -1074,11 +1567,11 @@ function renderGridEditor(){
       }
 
       const shelfLbl=document.createElement('div');
-      shelfLbl.className='lbl'; shelfLbl.textContent='層板顏色(此格獨立)';
+      shelfLbl.className='lbl'; shelfLbl.textContent='層板顏色(此格、此排獨立)';
       box.appendChild(shelfLbl);
       const shelfSel=document.createElement('select');
       populateColorSelect(shelfSel, true);
-      const shelfKey = r+'_'+c;
+      const shelfKey = cellKey(r,c,d);
       shelfSel.value = state.shelfColors[shelfKey] || '';
       shelfSel.addEventListener('change',()=>{
         if(shelfSel.value) state.shelfColors[shelfKey]=shelfSel.value; else delete state.shelfColors[shelfKey];
@@ -1086,29 +1579,42 @@ function renderGridEditor(){
       });
       box.appendChild(shelfSel);
 
-      // 背板:此格是否要加背板(每格獨立可選)
-      const backKey = r+'_'+c;
-      const backLine = document.createElement('div');
-      backLine.className='checkline';
-      const backChk = document.createElement('input');
-      backChk.type='checkbox'; backChk.checked = !!state.backPanels[backKey];
-      backChk.addEventListener('change',()=>{
-        if(backChk.checked) state.backPanels[backKey]=true; else delete state.backPanels[backKey];
+      // 背面:此格背面可貼面板或門片(每格、每排各自獨立;含型別與顏色,做雙面櫃用)
+      const backKey = cellKey(r,c,d);
+      const backObj = getBackPanel(r,c,d);
+      const backLbl=document.createElement('div');
+      backLbl.className='lbl'; backLbl.textContent='背面(無/面板/門片)';
+      box.appendChild(backLbl);
+      const backTypeSel=document.createElement('select');
+      (function(){
+        const o0=document.createElement('option'); o0.value=''; o0.textContent='(無背板)'; backTypeSel.appendChild(o0);
+        ENABLED_CELL_TYPES.filter(t=>t.kind==='tiered' && t.id!=='open').forEach(t=>{
+          const o=document.createElement('option'); o.value=t.id; o.textContent=t.name; backTypeSel.appendChild(o);
+        });
+      })();
+      backTypeSel.value = backObj ? backObj.type : '';
+      backTypeSel.addEventListener('change',()=>{
+        if(backTypeSel.value) state.backPanels[backKey]={type:backTypeSel.value, color:(backObj&&backObj.color)||''};
+        else delete state.backPanels[backKey];
         renderAll();
       });
-      const backChkLbl = document.createElement('label');
-      backChkLbl.style.margin='0'; backChkLbl.textContent='背板';
-      backLine.appendChild(backChk); backLine.appendChild(backChkLbl);
-      box.appendChild(backLine);
+      box.appendChild(backTypeSel);
+      if(backObj && (CELL_TYPES.find(t=>t.id===backObj.type)||{}).category!=='glass'){
+        const backColorSel=document.createElement('select');
+        populateColorSelect(backColorSel, true);
+        backColorSel.value = backObj.color || '';
+        backColorSel.addEventListener('change',()=>{ state.backPanels[backKey]={type:backObj.type, color:backColorSel.value}; renderAll(); });
+        box.appendChild(backColorSel);
+      }
 
-      // 右側隔板:此欄與下一欄之間(每層獨立)可選是否加裝直立隔板+顏色。
+      // 右側隔板:此欄與下一欄之間(每層、每排獨立)可選是否加裝直立隔板+顏色。
       // 最後一欄右邊已經是側板,不需要再加隔板。即使右邊那格被移除了也還是可以加
       // (效果等於幫這一格的右邊加一片封邊板)。
-      if(c < state.cols.length-1){
-        const div = getDivider(r,c);
+      if(c < cols.length-1){
+        const div = getDivider(r,c,d);
         const dividerLbl=document.createElement('div');
         dividerLbl.className='lbl';
-        dividerLbl.textContent = isFilled(r,c+1) ? '右側隔板(此格與下一欄之間)' : '右側隔板(右邊那格已移除,可當封邊板)';
+        dividerLbl.textContent = isFilled(r,c+1,d) ? '右側隔板(此格與下一欄之間)' : '右側隔板(右邊那格已移除,可當封邊板)';
         box.appendChild(dividerLbl);
         const dividerLine = document.createElement('div');
         dividerLine.className='checkline';
@@ -1129,8 +1635,8 @@ function renderGridEditor(){
       // 左側隔板:只有在「左邊那格已被移除」時才顯示這個控制項(正常情況下這個邊界
       // 已經由左邊那格的「右側隔板」控制過了,這裡重複顯示只會讓人混淆)。
       // 這樣不管移除的是左邊還是右邊那一格,使用者永遠能從還存在的那一格控制隔板。
-      if(c > 0 && !isFilled(r,c-1)){
-        const divL = getDivider(r,c-1);
+      if(c > 0 && !isFilled(r,c-1,d)){
+        const divL = getDivider(r,c-1,d);
         const dividerLblL=document.createElement('div');
         dividerLblL.className='lbl'; dividerLblL.textContent='左側隔板(左邊那格已移除,可當封邊板)';
         box.appendChild(dividerLblL);
@@ -1228,6 +1734,74 @@ function renderPriceTables(){
    ========================================================= */
 let three = null;
 
+// 材質顏色小工具:renderer 開了 sRGB 輸出後,MeshStandardMaterial 的 color 要先轉成線性色域,
+// 顏色才會跟色卡一致(不轉的話整體會偏淡、灰掉,看起來就像「顏色改了沒反應」)。
+function matColor(hex){
+  const c = new THREE.Color(hex);
+  if(typeof c.convertSRGBToLinear === 'function') c.convertSRGBToLinear();
+  return c;
+}
+// USM 烤漆金屬面板:粉體塗裝其實是「非金屬底色 + 一層薄薄的亮光漆」。
+// 用 MeshPhysicalMaterial 的 clearcoat 模擬,比單純調 metalness 更接近官網渲染的光澤感。
+function paintMat(hex){
+  if(THREE.MeshPhysicalMaterial){
+    const m = new THREE.MeshPhysicalMaterial({
+      color: matColor(hex), metalness: 0.0, roughness: 0.5,
+      clearcoat: 0.4, clearcoatRoughness: 0.35
+    });
+    m.envMapIntensity = 0.6; // 環境反射壓低,烤漆不會亮到發白
+    return m;
+  }
+  return new THREE.MeshStandardMaterial({color:matColor(hex), metalness:0.12, roughness:0.42});
+}
+// 隔音面板:布面/軟質,霧面無光。
+function acousticMat(hex){
+  return new THREE.MeshStandardMaterial({color:matColor(hex), metalness:0.0, roughness:0.9});
+}
+// 清玻璃:高光滑、帶一點環境反射。
+function glassMat(){
+  return new THREE.MeshPhysicalMaterial({color:matColor(GLASS_TINT_HEX), transparent:true, opacity:0.22, roughness:0.04, metalness:0.0, side:THREE.DoubleSide});
+}
+// 產生一張「攝影棚」環境貼圖:金屬材質(metalness 高)沒有環境可反射時會渲染成近黑色,
+// 這正是鍍鉻支架看起來像消失的原因。用 canvas 畫一個上亮下暗、帶幾條燈箱高光的簡易棚景,
+// 經 PMREMGenerator 轉成 scene.environment,鍍鉻球接頭/鋼管就會有真實的亮銀反射,
+// 烤漆面板也會有貼近 USM 實品的柔和光澤。
+function makeStudioEnv(renderer){
+  try{
+    if(!THREE.PMREMGenerator || !THREE.CanvasTexture) return null;
+    const cv = document.createElement('canvas'); cv.width = 512; cv.height = 256;
+    const ctx = cv.getContext('2d'); if(!ctx) return null;
+    const g = ctx.createLinearGradient(0,0,0,256);
+    g.addColorStop(0.00,'#ffffff');
+    g.addColorStop(0.42,'#eceded');
+    g.addColorStop(0.52,'#c9cbcc');
+    g.addColorStop(0.60,'#a2a4a6');
+    g.addColorStop(1.00,'#6f7173');
+    ctx.fillStyle = g; ctx.fillRect(0,0,512,256);
+    // 柔邊長條燈箱(radial gradient 模糊邊緣,鍍鉻上的高光帶才不會生硬)
+    function softBox(x,y,w,h,a){
+      const rg = ctx.createRadialGradient(x+w/2, y+h/2, Math.min(w,h)*0.15, x+w/2, y+h/2, Math.max(w,h)*0.75);
+      rg.addColorStop(0,'rgba(255,255,255,'+a+')');
+      rg.addColorStop(1,'rgba(255,255,255,0)');
+      ctx.fillStyle = rg; ctx.fillRect(x-w*0.5, y-h*0.5, w*2, h*2);
+    }
+    // 天花板中央再補一條超亮主燈(鍍鉻頂部的招牌高光)
+    softBox(190,8,140,26,1.0);
+    softBox(40,30,120,50,0.95);   // 左側大燈箱
+    softBox(300,24,150,60,0.95);  // 右側大燈箱
+    softBox(200,60,60,30,0.7);    // 中央補光
+    // 地面上一條淡淡的暗帶,模擬棚內地面對金屬的反射
+    ctx.fillStyle='rgba(60,62,64,0.35)'; ctx.fillRect(0,215,512,41);
+    const tex = new THREE.CanvasTexture(cv);
+    tex.mapping = THREE.EquirectangularReflectionMapping;
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    if(pmrem.compileEquirectangularShader) pmrem.compileEquirectangularShader();
+    const env = pmrem.fromEquirectangular(tex).texture;
+    tex.dispose(); pmrem.dispose();
+    return env;
+  }catch(e){ return null; }
+}
+
 function initThree(){
   const wrap = document.getElementById('canvasWrap');
   const W = wrap.clientWidth || 640, H = wrap.clientHeight || 480;
@@ -1239,19 +1813,27 @@ function initThree(){
   renderer.setSize(W, H);
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  // sRGB 輸出 + 電影級色調映射:亮部不會爆掉、暗色面板仍分得出顏色,整體更接近實品照。
+  if(THREE.sRGBEncoding !== undefined) renderer.outputEncoding = THREE.sRGBEncoding;
+  if(THREE.ACESFilmicToneMapping !== undefined){ renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 0.95; }
   wrap.appendChild(renderer.domElement);
 
-  const hemi = new THREE.HemisphereLight(0xffffff, 0x55504a, 0.9);
+  // 環境反射:讓鍍鉻支架真的像鍍鉻(沒有這個,金屬會渲染成近黑色、像支架不見了)。
+  const env = makeStudioEnv(renderer);
+  if(env) scene.environment = env;
+
+  const hemi = new THREE.HemisphereLight(0xffffff, 0x55504a, 0.55);
   scene.add(hemi);
-  const key = new THREE.DirectionalLight(0xffffff, 0.95);
+  const key = new THREE.DirectionalLight(0xffffff, 0.78);
   key.position.set(120, 200, 160);
   key.castShadow = true;
-  key.shadow.mapSize.set(1024,1024);
+  key.shadow.mapSize.set(2048,2048);
+  key.shadow.bias = -0.0004;
   key.shadow.camera.left=-200; key.shadow.camera.right=200;
   key.shadow.camera.top=200; key.shadow.camera.bottom=-200;
   key.shadow.camera.near=10; key.shadow.camera.far=800;
   scene.add(key);
-  const fill = new THREE.DirectionalLight(0xffffff, 0.32);
+  const fill = new THREE.DirectionalLight(0xffffff, 0.24);
   fill.position.set(-150, 80, -100);
   scene.add(fill);
 
@@ -1259,37 +1841,68 @@ function initThree(){
   scene.add(group);
 
   const groundGeom = new THREE.PlaneGeometry(3000,3000);
-  const groundMat = new THREE.ShadowMaterial({opacity:0.26});
+  const groundMat = new THREE.ShadowMaterial({opacity:0.2});
   const ground = new THREE.Mesh(groundGeom, groundMat);
   ground.rotation.x = -Math.PI/2;
   ground.receiveShadow = true;
   scene.add(ground);
 
+  // target = 相機注視/環繞的中心點(平移時移動它,就等於整個 3D 場景自由擺放)。
   let radius = 300, azimuth = Math.PI/4.2, elevation = 0.55;
+  const target = new THREE.Vector3(0, 0, 0);
   function updateCamera(){
     camera.position.set(
-      radius*Math.cos(elevation)*Math.sin(azimuth),
-      radius*Math.sin(elevation),
-      radius*Math.cos(elevation)*Math.cos(azimuth)
+      target.x + radius*Math.cos(elevation)*Math.sin(azimuth),
+      target.y + radius*Math.sin(elevation),
+      target.z + radius*Math.cos(elevation)*Math.cos(azimuth)
     );
-    camera.lookAt(0,0,0);
+    camera.lookAt(target);
   }
   updateCamera();
+  // 依相機目前朝向,取得畫面的「右」與「上」單位向量,平移時用來把螢幕位移換算成世界位移。
+  function screenAxes(){
+    camera.updateMatrixWorld();
+    const dir = new THREE.Vector3(); camera.getWorldDirection(dir);
+    const right = new THREE.Vector3().crossVectors(dir, camera.up).normalize();
+    const up = new THREE.Vector3().crossVectors(right, dir).normalize();
+    return {right, up};
+  }
 
-  let dragging=false, lastX=0, lastY=0;
-  renderer.domElement.addEventListener('pointerdown', e=>{ dragging=true; lastX=e.clientX; lastY=e.clientY; wrap.style.cursor='grabbing'; });
-  window.addEventListener('pointerup', ()=>{ dragging=false; wrap.style.cursor='grab'; });
+  let dragging=false, panning=false, lastX=0, lastY=0, movedDist=0;
+  renderer.domElement.addEventListener('pointerdown', e=>{
+    dragging=true; lastX=e.clientX; lastY=e.clientY; movedDist=0;
+    // 按住 Shift、或用中鍵/右鍵拖曳 = 平移(擺放);其餘 = 旋轉/點擊編輯。
+    panning = e.shiftKey || e.button===1 || e.button===2;
+    wrap.style.cursor = panning ? 'move' : ((editMode==='view') ? 'grabbing' : 'crosshair');
+  });
+  renderer.domElement.addEventListener('contextmenu', e=> e.preventDefault()); // 右鍵平移時不要跳出選單
+  window.addEventListener('pointerup', e=>{
+    // 編輯模式下,若這次幾乎沒有移動(算是點擊而非拖曳),就當作在該處點擊編輯(平移不觸發)。
+    if(dragging && !panning && movedDist < 6 && editMode!=='view'){ handle3DClick(e.clientX, e.clientY); }
+    dragging=false; panning=false;
+    wrap.style.cursor = (editMode==='view') ? 'grab' : 'crosshair';
+  });
   window.addEventListener('pointermove', e=>{
     if(!dragging) return;
     const dx=e.clientX-lastX, dy=e.clientY-lastY;
+    movedDist += Math.abs(dx)+Math.abs(dy);
     lastX=e.clientX; lastY=e.clientY;
+    if(panning){
+      const ax = screenAxes();
+      const scale = radius*0.0016;
+      target.addScaledVector(ax.right, -dx*scale);
+      target.addScaledVector(ax.up, dy*scale);
+      updateCamera();
+      return;
+    }
+    // 即使在編輯模式,拖曳一樣可以旋轉檢視(移動量夠大時,放開就不會被當成點擊)。
     azimuth -= dx*0.008;
     elevation = Math.max(0.08, Math.min(1.3, elevation+dy*0.006));
     updateCamera();
   });
   renderer.domElement.addEventListener('wheel', e=>{
     e.preventDefault();
-    radius = Math.max(30, Math.min(1500, radius*(e.deltaY>0?1.08:0.92)));
+    radius = Math.max(30, Math.min(3000, radius*(e.deltaY>0?1.08:0.92)));
     updateCamera();
   }, {passive:false});
 
@@ -1304,18 +1917,77 @@ function initThree(){
   function render(){ requestAnimationFrame(render); renderer.render(scene, camera); }
   render();
 
-  three = { scene, camera, renderer, group, ground, setRadius:(r)=>{ radius=r; updateCamera(); } };
+  three = {
+    scene, camera, renderer, group, ground, raycaster:new THREE.Raycaster(),
+    dom:renderer.domElement, wrap, framedOnce:false, lastDiag:300,
+    setRadius:(r)=>{ radius=r; updateCamera(); },
+    // 重新置中並依模型大小自動縮放:把 target 拉回原點、radius 重設(角度保留)。
+    frame:(diag)=>{ target.set(0,0,0); radius = diag*0.9 + 25; updateCamera(); }
+  };
+}
+/* ---------- 3D 點擊互動:把螢幕座標打成射線,找出被點到的「可點擊格」或「ghost 佔位格」 ---------- */
+let editMode = 'view'; // view / frame(加支架) / panel(加面板) / remove(移除)
+// rebuild3D 會把目前正在編輯那一排的可點擊物件掛進場景,userData 帶著 {kind,d,r,c,grow}。
+function handle3DClick(clientX, clientY){
+  if(!three) return;
+  const rect = three.dom.getBoundingClientRect();
+  const nx = ((clientX-rect.left)/rect.width)*2 - 1;
+  const ny = -((clientY-rect.top)/rect.height)*2 + 1;
+  three.raycaster.setFromCamera({x:nx,y:ny}, three.camera);
+  const hits = three.raycaster.intersectObjects(three.group.children, true);
+  // 依模式挑出第一個「符合這個模式要處理的類型」的可點擊物件(真正的結構 mesh 沒有 userData.kind,
+  // 會被跳過)。frame→ghost、tube→tube、shelf→hslot、其餘(panel/remove)→cell。
+  let wantKind = 'cell';
+  if(editMode==='frame') wantKind='ghost';
+  else if(editMode==='tube') wantKind='tube';
+  else if(editMode==='shelf') wantKind='hslot';
+  for(let i=0;i<hits.length;i++){
+    const ud = hits[i].object.userData;
+    if(ud && ud.kind===wantKind){
+      if(editMode==='frame') addFrameAt(ud.d, ud.r, ud.c, ud.grow);
+      else if(editMode==='tube') toggleTube(ud.d, ud.fam, ud.pl, ud.c, ud.r);
+      else if(editMode==='shelf') toggleFreeHPanel(ud.d, ud.r, ud.c);
+      else if(editMode==='panel') togglePanelAt(ud.d, ud.r, ud.c);
+      else if(editMode==='remove') removeCellAt(ud.d, ud.r, ud.c);
+      return;
+    }
+  }
+}
+function setEditMode(mode){
+  editMode = mode;
+  document.querySelectorAll('#editModeBar button[data-mode]').forEach(b=>{
+    const on = b.getAttribute('data-mode')===mode;
+    b.classList.toggle('emActive', on);
+    b.classList.toggle('secondary', !on);
+  });
+  const hints = {
+    view:'',
+    tube:'逐根鋼管模式:點淡藍色的虛線位置可補上一根鋼管;點已存在的鋼管則會把它拆掉(一根一根加減)。',
+    frame:'加支架(整格)模式:點擊半透明的佔位格,會在該處新增一整格支架(向右/向上/左/下/內部補格)。',
+    panel:'加面板模式:點擊任一格,可在該格的開口面加上/取回固定面板(面板會朝該排的開口方向)。',
+    shelf:'加層板模式:點任一水平格線位置,即可單獨放上/取回一片水平面板(層板/頂板/底板通用),不受格子存不存在限制。',
+    remove:'移除格模式:點擊任一格即可把該格整格支架移除(可做出高低錯落的造型)。'
+  };
+  document.getElementById('editModeHint').textContent = hints[mode] || '';
+  if(three) three.wrap.style.cursor = (mode==='view') ? 'grab' : 'crosshair';
+  renderAll(); // 重畫,依模式決定要不要顯示 ghost / 可點擊格
 }
 
 function disposeGroupChildren(group){
-  while(group.children.length){
-    const obj = group.children.pop();
-    if(obj.geometry) obj.geometry.dispose();
-    if(obj.material){
-      if(Array.isArray(obj.material)) obj.material.forEach(m=>m.dispose());
-      else obj.material.dispose();
-    }
-  }
+  // 現在 group 底下是每一排的 pivot→rowGroup→實際 mesh 的巢狀結構,不能只釋放最上層的
+  // 直屬子物件,要往下遞迴 traverse 把每個 mesh 的 geometry/material 都釋放掉,否則每次
+  // 重新渲染都會累積沒被回收的 GPU 資源(而點擊編輯會頻繁觸發重新渲染)。
+  const children = group.children.slice();
+  children.forEach(child=>{
+    child.traverse(obj=>{
+      if(obj.geometry) obj.geometry.dispose();
+      if(obj.material){
+        if(Array.isArray(obj.material)) obj.material.forEach(m=>m.dispose());
+        else obj.material.dispose();
+      }
+    });
+    group.remove(child);
+  });
 }
 
 function rebuild3D(){
@@ -1323,285 +1995,648 @@ function rebuild3D(){
   const group = three.group;
   disposeGroupChildren(group);
 
-  const cols = state.cols, M = state.rows, rowHeights = state.rowHeights, D = state.depth;
-  const N = cols.length;
-  const colOffsets = [0];
-  for(let i=0;i<N;i++) colOffsets.push(colOffsets[i]+cols[i]);
-  const totalWidth = colOffsets[N];
-  // 每一層高度可能不同,所以跟欄寬一樣改用累加陣列(rowOffsets[r] = 第 r 層底部的 Y 座標),
-  // 不能再用「r * 單一高度」這種假設所有層等高的算法。
-  const rowOffsets = [0];
-  for(let i=0;i<M;i++) rowOffsets.push(rowOffsets[i]+rowHeights[i]);
-  const totalHeight = rowOffsets[M];
+  const depthLayers = state.depthLayers, depthFacing = state.depthFacing;
+  const L = depthLayers.length;
+  // 欄數/欄寬、層數/層高現在都是「每排各自獨立」,所以 colOffsets/rowOffsets/totalWidth/
+  // totalHeight 都要各排各算一份。所有排都從 x=0(左邊)、y=0(底部)對齊,寬度/高度不同的排
+  // 邊緣會切齊在不同位置(階梯狀),整個群組用「最寬/最高那一排」置中,這樣畫面不會因為
+  // 某一排比較窄/矮就整個歪掉。
+  const colOffsetsByLayer = [], totalWidthByLayer = [];
+  const rowOffsetsByLayer = [], totalHeightByLayer = [];
+  for(let d=0; d<L; d++){
+    const cols = layerCols(d);
+    const off = [0];
+    for(let i=0;i<cols.length;i++) off.push(off[i]+cols[i]);
+    colOffsetsByLayer.push(off);
+    totalWidthByLayer.push(off[cols.length]);
+
+    const heights = layerRowHeights(d);
+    const roff = [0];
+    for(let i=0;i<heights.length;i++) roff.push(roff[i]+heights[i]);
+    rowOffsetsByLayer.push(roff);
+    totalHeightByLayer.push(roff[heights.length]);
+  }
+  const totalWidth = Math.max.apply(null, totalWidthByLayer);
+  const totalHeight = Math.max.apply(null, totalHeightByLayer);
+  // 深度方向也是同樣的累加陣列邏輯(depthOffsets[0]=0,往負方向累加,z 越負代表越深入櫃體)。
+  // 單排時 depthOffsets=[0,-D],跟舊版的 0/-D 兩個端點完全一樣。
+  const depthOffsets = [0];
+  for(let i=0;i<L;i++) depthOffsets.push(depthOffsets[i]-depthLayers[i]);
+  const totalDepth = -depthOffsets[L];
 
   // 依 USM 官方規格:球徑20mm(半徑1cm)、連接管直徑12.7mm(半徑0.635cm)
   const ballR = 1.0, tubeR = 0.635;
-  const metalMat = new THREE.MeshStandardMaterial({color:0xC9CDD0, metalness:0.92, roughness:0.22});
+  // 支架五金材質依 state.frameColor:鍍鉻(搭配攝影棚環境反射的亮銀)/黑烤漆/白粉體。
+  // 支架五金固定為官方標準鍍鉻:接近純反射的亮銀——底色偏冷灰、粗糙度壓低、
+  // 環境反射加強,金屬感主要來自反射對比。
+  function frameFinishMat(){
+    const m = new THREE.MeshStandardMaterial({color:matColor(0xD8DCE0), metalness:1.0, roughness:0.09});
+    m.envMapIntensity = 1.45;
+    return m;
+  }
+  const metalMat = frameFinishMat();
 
+  // ---- 每一排各自的 rowGroup + pivot(支援開口朝前後左右) ----
+  // 每一排的內容都用既有的「全域座標」建立(下面所有 add* / .add 都照舊),差別只在於
+  // 加進「該排自己的 rowGroup」而不是直接加進 group。rowGroup 先把內容平移到原點,外層
+  // pivot 再繞垂直軸旋轉到開口方向、平移到最終位置。當所有排都朝前(角度0)時,世界座標
+  // 跟舊版逐點一致,不會改變既有外觀;某一排改成朝左/右/後時,就整排繞自己的垂直中心轉向。
+  // rowXf[d] 存這一排的完整變換參數,worldPt() 用它把「全域建構座標」換算成真正的世界座標
+  //(用來做球接頭/鋼管/水平面板的重複疊層去重)。
+  // 基準點(anchor)改為每一排自己的「前左角」:
+  //   - 位置/旋轉都以前左角為準,調整這一排的欄寬/深度時只會「往右/往後長」,基準點不動;
+  //   - 不再參照「所有排的最大寬度/總深度」——改任何一排的尺寸,其他排絕對不會跟著滑動,
+  //     轉角接點因此不會再因為改尺寸而裂開(這正是之前「改數值就破圖」的根本原因)。
+  //   - 整體置中改由外層 group 統一平移(見下方 bbox 置中),對相對位置沒有影響。
+  const rowGroups = [], pivots = [], rowXf = [];
+  const rowShift = state.rowShift || [];
+  for(let d=0; d<L; d++){
+    const rg = new THREE.Group();
+    const zFront = depthOffsets[d]; // 這一排預設的前緣(依排序往後堆疊)
+    rg.position.set(0, 0, -zFront); // 內容平移到「前左角在原點」:local x∈[0,W]、z∈[0,-D]
+    const sh = rowShift[d] || {dx:0,dz:0,rot:0};
+    const angle = facingAngle(depthFacing[d]||'front') + (sh.rot||0)*Math.PI/180;
+    const px = (sh.dx||0);              // 前左角的世界位置(dx/dz 直接就是基準點位移)
+    const py = -totalHeight/2;
+    const pz = zFront + (sh.dz||0);
+    const pv = new THREE.Group();
+    pv.add(rg);
+    pv.rotation.y = angle;
+    pv.position.set(px, py, pz);
+    rowGroups.push(rg); pivots.push(pv);
+    rowXf.push({zFront, angle, px, py, pz});
+    group.add(pv);
+  }
+  // 整體置中:所有排排好之後,把外層 group 平移到畫面中央(用各排實際佔位的外框中心)。
+  (function(){
+    let minX=1e9,maxX=-1e9,minZ=1e9,maxZ=-1e9;
+    currentRowGeom().forEach(r=>rowCorners(r).forEach(pt=>{
+      minX=Math.min(minX,pt.x); maxX=Math.max(maxX,pt.x);
+      minZ=Math.min(minZ,pt.z); maxZ=Math.max(maxZ,pt.z);
+    }));
+    if(minX<=maxX) group.position.set(-(minX+maxX)/2, 0, -(minZ+maxZ)/2);
+  })();
+  // 把「第 d 排的全域建構座標 (gx,gy,gz)」換算成世界座標(去重用;不含 group 置中,前後一致即可):
+  //   local = (gx, gz - zFront) → 繞 Y 轉 angle → 加 (px,py,pz)
+  function worldPt(d, gx, gy, gz){
+    const xf = rowXf[d];
+    const lx = gx, lz = gz - xf.zFront;
+    const s = Math.sin(xf.angle), c = Math.cos(xf.angle);
+    return { x: lx*c + lz*s + xf.px, y: gy + xf.py, z: -lx*s + lz*c + xf.pz };
+  }
+  // 具容差的去重器(球接頭/鋼管一組,水平面板一組),跟 BOM 用同一個 makeDedupe 工廠。
+  const dedupeF = makeDedupe(DEDUPE_TOL), dedupeP = makeDedupe(DEDUPE_TOL);
+  // add* 系列會把 mesh 加進 curTarget;每一排開始建置前先把 curTarget 指向該排的 rowGroup,
+  // 並把 curRowD 設成該排(add* 內部才能用 worldPt 算世界座標去重)。
+  let curTarget = group, curRowD = 0;
+
+  // 依世界座標(含容差)去重:同一顆球接頭只畫一次(消除轉向/交叉造成的支點重複疊層)。
+  function ballDup(x,y,z){
+    const w = worldPt(curRowD, x, y, z);
+    return dedupeF.seenBall(w.x, w.y, w.z);
+  }
+  // 鋼管以「兩端世界座標(含容差,不分方向)」判定,重合的鋼管只畫一次。
+  function tubeDup(ax,ay,az,bx,by,bz){
+    const a = worldPt(curRowD, ax,ay,az), b = worldPt(curRowD, bx,by,bz);
+    return dedupeF.seenTube([a.x,a.y,a.z], [b.x,b.y,b.z]);
+  }
   function addBall(x,y,z){
+    if(ballDup(x,y,z)) return;
     const g = new THREE.SphereGeometry(ballR, 16, 16);
     const m = new THREE.Mesh(g, metalMat);
     m.position.set(x,y,z); m.castShadow = true;
-    group.add(m);
+    curTarget.add(m);
   }
   function addTubeX(x0,x1,y,z){
+    if(tubeDup(x0,y,z, x1,y,z)) return;
     const g = new THREE.CylinderGeometry(tubeR, tubeR, x1-x0, 10);
     g.rotateZ(Math.PI/2);
     const m = new THREE.Mesh(g, metalMat);
     m.position.set((x0+x1)/2, y, z); m.castShadow = true;
-    group.add(m);
+    curTarget.add(m);
   }
   function addTubeY(x,y0,y1,z){
+    if(tubeDup(x,y0,z, x,y1,z)) return;
     const g = new THREE.CylinderGeometry(tubeR, tubeR, y1-y0, 10);
     const m = new THREE.Mesh(g, metalMat);
     m.position.set(x, (y0+y1)/2, z); m.castShadow = true;
-    group.add(m);
+    curTarget.add(m);
   }
   function addTubeZ(x,y,z0,z1){
+    if(tubeDup(x,y,z0, x,y,z1)) return;
     const g = new THREE.CylinderGeometry(tubeR, tubeR, Math.abs(z1-z0), 10);
     g.rotateX(Math.PI/2);
     const m = new THREE.Mesh(g, metalMat);
     m.position.set(x, y, (z0+z1)/2); m.castShadow = true;
-    group.add(m);
+    curTarget.add(m);
   }
+  // 水平面板去重:同一個世界位置(含容差)的水平板只畫一次(層板/頂/底/自訂重疊時只留一片)。
+  function hPanelDup(d, gx, gy, gz, pw, pd){
+    const w = worldPt(d, gx, gy, gz);
+    // 依該排旋轉角把面板的長寬換算成世界座標軸向的佔位(90度旋轉時長寬互換;斜角時取投影)
+    const ang = rowXf[d] ? rowXf[d].angle : 0;
+    const ac = Math.abs(Math.cos(ang)), as = Math.abs(Math.sin(ang));
+    const ww = (pw||0)*ac + (pd||0)*as;
+    const dd = (pw||0)*as + (pd||0)*ac;
+    return dedupeP.seenPanel(w.x, w.y, w.z, ww, dd);
+  }
+  // 排疊層防閃爍:不同排的水平板真的部分重疊共存時(尺寸不同所以不去重),
+  // 給每一排一個肉眼不可見的微小高度差,避免完全共面造成 z-fighting 花屏。
+  function rowYBias(d){ return d * 0.07; }
 
   // 依「外觀輪廓」只在實際有格子的地方產生球接頭/連接管(支援左右不同高度的階梯造型;
-  // 兩個相鄰欄高度不同時,共用的那支直柱會沿著較高欄的高度往上延伸)
-  const frame = computeFrameSets();
-  for(let zi=0; zi<2; zi++){
-    const z = zi===0 ? 0 : -D;
-    frame.points.forEach(key=>{ const p=key.split('_'); addBall(colOffsets[+p[0]], rowOffsets[+p[1]], z); });
-    frame.hTubes.forEach(key=>{ const p=key.split('_'); const c=+p[0], r=+p[1]; addTubeX(colOffsets[c], colOffsets[c+1], rowOffsets[r], z); });
-    frame.vTubes.forEach(key=>{ const p=key.split('_'); const c=+p[0], r=+p[1]; addTubeY(colOffsets[c], rowOffsets[r], rowOffsets[r+1], z); });
+  // 兩個相鄰欄高度不同時,共用的那支直柱會沿著較高欄的高度往上延伸)。現在每一排的欄位配置
+  // 跟層高配置都可能不一樣,所以框架要逐排各自計算;相鄰兩排「欄寬」跟「層高」都完全相同時,
+  // 交界處只畫一次(避免五金數量被灌水),只要有一邊不同,交界處就要各自畫一份(物理上真的
+  // 需要兩組接頭才能各自銜接)。
+  function colsEqual(a,b){ return a.length===b.length && a.every((v,i)=>v===b[i]); }
+  function rowsEqual(a,b){ return a.length===b.length && a.every((v,i)=>v===b[i]); }
+  // 逐根實體鋼管:直接照 computePhysicalFrame 的三組集合各自畫出一根一根鋼管與球接頭。
+  const physByLayer = [];
+  for(let d=0; d<L; d++) physByLayer.push(computePhysicalFrame(d));
+  // 判斷這一排的「近端平面(pl=0)」是否可以略過(跟前一排遠端平面在世界座標重合時,避免重複)。
+  function skipNearPlane(d){
+    if(d===0) return false;
+    const bothFront = (depthFacing[d]||'front')==='front' && (depthFacing[d-1]||'front')==='front';
+    const noEdits = !hasFrameEdits(d) && !hasFrameEdits(d-1);
+    return bothFront && noEdits && colsEqual(layerCols(d), layerCols(d-1)) && rowsEqual(layerRowHeights(d), layerRowHeights(d-1));
   }
-  frame.points.forEach(key=>{ const p=key.split('_'); addTubeZ(colOffsets[+p[0]], rowOffsets[+p[1]], 0, -D); });
+  function planeZ(d, pl){ return pl===0 ? depthOffsets[d] : depthOffsets[d+1]; }
+  // 每一排都完整畫出自己的兩個平面 + 深度鋼管;交界/交叉處真正重合的鋼管與球接頭,
+  // 由 add* 內建的「世界座標去重」自動只留一份(不再用會忽略位移的 skipNear 判斷,避免把
+  // 被拉開的排誤判成共用而漏畫一整面框架)。BOM 用完全一樣的去重邏輯,數量因此一致。
+  for(let d=0; d<L; d++){
+    curTarget = rowGroups[d]; curRowD = d;
+    const colOffsets = colOffsetsByLayer[d], rowOffsets = rowOffsetsByLayer[d];
+    const phys = physByLayer[d];
+    phys.H.forEach(k=>{ const p=k.split('_'); const pl=+p[0],c=+p[1],r=+p[2]; addTubeX(colOffsets[c], colOffsets[c+1], rowOffsets[r], planeZ(d,pl)); });
+    phys.V.forEach(k=>{ const p=k.split('_'); const pl=+p[0],c=+p[1],r=+p[2]; addTubeY(colOffsets[c], rowOffsets[r], rowOffsets[r+1], planeZ(d,pl)); });
+    phys.Z.forEach(k=>{ const p=k.split('_'); const c=+p[0],r=+p[1]; addTubeZ(colOffsets[c], rowOffsets[r], depthOffsets[d], depthOffsets[d+1]); });
+    phys.balls.forEach(k=>{ const p=k.split('_'); const pl=+p[0],c=+p[1],r=+p[2]; addBall(colOffsets[c], rowOffsets[r], planeZ(d,pl)); });
+  }
 
   // 面板/門/抽屜:內縮於球心平面之後,讓球接頭凸出面板表面(貼近實際外觀)
   const GAP = 0.5;
   const recess = ballR * 0.6; // 面板前緣退到球心後方
-  for(let r=0;r<M;r++){
-    for(let c=0;c<N;c++){
-      if(!isFilled(r,c)) continue; // 這一格在「外觀輪廓」被移除了,整格都不畫
 
-      const cell = getCell(r,c);
-      const x0=colOffsets[c], x1=colOffsets[c+1];
-      const y0=rowOffsets[r], y1=rowOffsets[r+1];
-      const w=(x1-x0)-GAP*2, h=(y1-y0)-GAP*2;
-      const cx=(x0+x1)/2, cy=(y0+y1)/2;
-      const typeDef = CELL_TYPES.find(t=>t.id===cell.type) || CELL_TYPES[0];
-      const colorId = cell.color || state.mainColor;
-      const hex = colorHex(colorId);
+  // 每一排各自的結構層板/面板/門片/背板/把手:每排的開口方向(facing)決定「正面」朝哪個交界面。
+  // 層板現在也是「每排各自獨立」的一小片(不再貫穿整個總深度),顏色可依「每排、每格」個別
+  // 指定,不指定則跟隨主色。
+  // facing='front'(預設,靠近你這面開口):跟舊版單排邏輯完全一樣。
+  // facing='back'(開口朝最遠那面):前後方向鏡射,做出背對背雙面櫃的效果。
+  const TOP_HANDLE_DOORS = ['door_dropdown_metal','door_dropdown_acoustic','door_glass','door_extension_metal'];
+  const BOTTOM_HANDLE_DOORS = ['door_flip_metal'];
+  for(let d=0; d<L; d++){
+    // 開口方向現在改由外層 pivot 旋轉整排來呈現,所以這裡一律以「開口朝前」的方式建模:
+    // 前緣(門片/面板)在 zNear、背面在 zFar,inwardSign 固定 -1。旋轉朝左/右/後的效果
+    // 由 rowGroups[d] 外層的 pivot 統一負責,不再在每一格各自鏡射。
+    curTarget = rowGroups[d];
+    const zNear = depthOffsets[d], zFar = depthOffsets[d+1]; // zNear 較接近0(靠近你),zFar 較深入
+    const frontBoundary = zNear;
+    const backBoundary  = zFar;
+    const inwardSign = -1;
+    const layerDepth = depthLayers[d];
+    const cols = layerCols(d), N = cols.length, colOffsets = colOffsetsByLayer[d];
+    const rowOffsets = rowOffsetsByLayer[d], M = layerRowHeights(d).length;
 
-      // 結構層板:每一格底部都存在(不論前方是開放/門片/抽屜,層板都是結構件,
-      // 不會因為換了門片款式就消失);顏色可依「每層」個別指定,不指定則跟隨主色
-      const shelfGeom = new THREE.BoxGeometry(w, 0.6, D-2);
-      const shelfMat = new THREE.MeshStandardMaterial({color:new THREE.Color(colorHex(getShelfColor(r,c))), metalness:0.2, roughness:0.6});
-      const shelf = new THREE.Mesh(shelfGeom, shelfMat);
-      shelf.position.set(cx, y0+0.4, -D/2);
-      shelf.castShadow = true; shelf.receiveShadow = true;
-      group.add(shelf);
+    for(let r=0;r<M;r++){
+      for(let c=0;c<N;c++){
+        if(!isFilled(r,c,d)) continue; // 這一格在「外觀輪廓」被移除了,整格都不畫
 
-      // 背板:每一格可獨立勾選是否要背板,勾選的格子背面才會加一片封閉板,顏色跟隨該格前方顏色設定
-      if(getBackPanel(r,c)){
-        const backThick = 1.2;
-        const backMat = new THREE.MeshStandardMaterial({color:new THREE.Color(hex), metalness:0.35, roughness:0.55});
-        const backGeom = new THREE.BoxGeometry(w, h, backThick);
-        const backMesh = new THREE.Mesh(backGeom, backMat);
-        backMesh.position.set(cx, cy, -D+recess+backThick/2);
-        backMesh.castShadow = true; backMesh.receiveShadow = true;
-        group.add(backMesh);
-      }
+        const cell = getCell(r,c,d);
+        const x0=colOffsets[c], x1=colOffsets[c+1];
+        const y0=rowOffsets[r], y1=rowOffsets[r+1];
+        const w=(x1-x0)-GAP*2, h=(y1-y0)-GAP*2;
+        const cx=(x0+x1)/2, cy=(y0+y1)/2;
+        const typeDef = CELL_TYPES.find(t=>t.id===cell.type) || CELL_TYPES[0];
+        const colorId = cell.color || state.mainColor;
+        const hex = colorHex(colorId);
 
-      if(typeDef.category==='open'){
-        continue;
-      }
+        // 結構層板:每一格底部都存在(不論前方是開放/門片/抽屜,層板都是結構件,不會因為
+        // 換了門片款式就消失),現在是這一排自己的一小片,顏色可依「每排、每格」個別指定。
+        // 若這個世界位置已經有水平面板(例如自訂層板或別排重疊),就不重複畫。
+        // 注意:若「底板」開啟且這一格正是這一欄最低的存在層,底板會畫在同一個位置——
+        // 結構層板必須讓位,否則層板先把位置登記進去重器,底板永遠畫不出來(也改不了顏色)。
+        const bottomPanelHere = state.bottomPanel && colBottomRow(c,d)===r;
+        if(!bottomPanelHere && !hPanelDup(d, cx, y0+0.4, (zNear+zFar)/2, w, layerDepth-2)){
+          const shelfGeom = new THREE.BoxGeometry(w, 0.6, layerDepth-2);
+          const shelfMat = paintMat(colorHex(getShelfColor(r,c,d)));
+          const shelf = new THREE.Mesh(shelfGeom, shelfMat);
+          shelf.position.set(cx, y0+0.4+rowYBias(d), (zNear+zFar)/2);
+          shelf.castShadow = true; shelf.receiveShadow = true;
+          rowGroups[d].add(shelf);
+        }
 
-      if(typeDef.category==='drawer'){
-        // 實測 USM 官方線上配置器後修正:抽屜/抽拉層板實際上是懸吊在「該格上方」的
-        // 淺薄滑軌托盤,並非填滿整格高度的深色抽屜面板。下方維持開放(底部層板已加好),
-        // 這裡只加托盤本體+兩側滑軌五金,貼近實際外觀。
-        const trayH = Math.max(h*0.16, 3);
-        const trayY = y1 - trayH/2 - 0.6;
-        const trayGeom = new THREE.BoxGeometry(w, trayH, D-4);
-        const trayMat = new THREE.MeshStandardMaterial({color:new THREE.Color(hex), metalness:0.3, roughness:0.5});
-        const tray = new THREE.Mesh(trayGeom, trayMat);
-        tray.position.set(cx, trayY, -D/2+1);
-        tray.castShadow = true; tray.receiveShadow = true;
-        group.add(tray);
+        // 背面:每一格、每一排可獨立貼面板或門片(含型別/顏色;玻璃固定清玻璃),做雙面櫃。
+        const backFace = getBackPanel(r,c,d);
+        if(backFace){
+          const backThick = 1.2;
+          const bDef = CELL_TYPES.find(t=>t.id===backFace.type) || CELL_TYPES.find(t=>t.id==='panel_fixed');
+          const bHex = colorHex(backFace.color || state.mainColor);
+          let backMat;
+          if(bDef.category==='glass') backMat = glassMat();
+          else if(bDef.id.indexOf('acoustic')!==-1) backMat = acousticMat(bHex);
+          else backMat = paintMat(bHex);
+          const backGeom = new THREE.BoxGeometry(w, h, backThick);
+          const backMesh = new THREE.Mesh(backGeom, backMat);
+          const backZ = backBoundary - inwardSign*(recess+backThick/2);
+          backMesh.position.set(cx, cy, backZ);
+          backMesh.castShadow = true; backMesh.receiveShadow = true;
+          rowGroups[d].add(backMesh);
+          if(bDef.category==='door'){
+            // 背面門片把手:朝背面外側(遠離櫃內)凸出一顆小圓柱
+            const bk = new THREE.Mesh(new THREE.CylinderGeometry(0.9,0.9,0.8,14), frameFinishMat());
+            bk.geometry.rotateX(Math.PI/2);
+            bk.position.set(cx, cy + h*0.32, backZ + inwardSign*1.0);
+            bk.castShadow = true;
+            rowGroups[d].add(bk);
+          }
+        }
 
-        // 兩側滑軌五金(小型鉻色托架,對應官網示意圖看到的滑軌支架)
-        const railMat = new THREE.MeshStandardMaterial({color:0xC9CDD0, metalness:0.8, roughness:0.3});
-        [x0+1.2, x1-1.2].forEach(rx=>{
-          const railGeom = new THREE.BoxGeometry(0.8, trayH*0.8, D-4);
-          const rail = new THREE.Mesh(railGeom, railMat);
-          rail.position.set(rx, trayY, -D/2+1);
-          rail.castShadow = true;
-          group.add(rail);
-        });
-        continue;
-      }
+        if(typeDef.category==='open'){
+          continue;
+        }
 
-      const thickness = 1.6;
-      const isAcoustic = cell.type.indexOf('acoustic') !== -1;
-      let mat;
-      if(typeDef.category==='glass'){
-        // 玻璃實際上是固定的透明(或霧面)強化玻璃,官方並不提供 RAL 上色選項,
-        // 所以這裡固定用近乎無色的清玻璃色調渲染,不採用使用者選的面板顏色。
-        mat = new THREE.MeshPhysicalMaterial({color:new THREE.Color(GLASS_TINT_HEX), transparent:true, opacity:0.28, roughness:0.05, metalness:0.05, side:THREE.DoubleSide});
-      } else if(isAcoustic){
-        // 隔音材質為布面/軟質感,較不反光,金屬感低、粗糙度高
-        mat = new THREE.MeshStandardMaterial({color:new THREE.Color(hex), metalness:0.05, roughness:0.9});
-      } else {
-        mat = new THREE.MeshStandardMaterial({color:new THREE.Color(hex), metalness:0.35, roughness:0.55});
-      }
-      const geom = new THREE.BoxGeometry(w, h, thickness);
-      const mesh = new THREE.Mesh(geom, mat);
-      mesh.position.set(cx, cy, -recess-thickness/2);
-      mesh.castShadow = true; mesh.receiveShadow = true;
-      group.add(mesh);
+        if(typeDef.category==='drawer'){
+          // 實測 USM 官方線上配置器後修正:抽屜/抽拉層板實際上是懸吊在「該格上方」的
+          // 淺薄滑軌托盤,並非填滿整格高度的深色抽屜面板。下方維持開放(底部層板已加好),
+          // 這裡只加托盤本體+兩側滑軌五金,貼近實際外觀。
+          const trayH = Math.max(h*0.16, 3);
+          const trayY = y1 - trayH/2 - 0.6;
+          const trayZ = (frontBoundary+backBoundary)/2 - inwardSign*1;
+          const trayGeom = new THREE.BoxGeometry(w, trayH, layerDepth-4);
+          const trayMat = paintMat(hex);
+          const tray = new THREE.Mesh(trayGeom, trayMat);
+          tray.position.set(cx, trayY, trayZ);
+          tray.castShadow = true; tray.receiveShadow = true;
+          rowGroups[d].add(tray);
 
-      // 門片把手:查證官方組裝說明後修正(先前方向弄反了)。掀門(door_flip_metal)實際上是
-      // 鉸鏈裝在「上緣」、靠氣壓撐桿往上掀開(像掀蓋式收納箱),所以把手在門片下方(要往上推的
-      // 那個自由邊)。下掀門(door_dropdown_metal/acoustic)則是鉸鏈裝在「下緣」、往下往外翻開
-      // 成一片橫放的平台(像掀蓋式書桌桌板),所以把手在門片上方(要往下拉的那個自由邊)。
-      // 玻璃門(door_glass)實際上是側邊鉸鏈的一般開門,把手暫時比照掀門放在上方當簡化處理;
-      // 伸縮門(door_extension_metal)沒有鉸鏈,同樣暫時比照上方把手處理。
-      const TOP_HANDLE_DOORS = ['door_dropdown_metal','door_dropdown_acoustic','door_glass','door_extension_metal'];
-      const BOTTOM_HANDLE_DOORS = ['door_flip_metal'];
-      if(TOP_HANDLE_DOORS.indexOf(cell.type)!==-1 || BOTTOM_HANDLE_DOORS.indexOf(cell.type)!==-1){
-        const knobGeom = new THREE.CylinderGeometry(1.1, 1.1, 0.8, 20);
-        knobGeom.rotateX(Math.PI/2);
-        const knobMat = new THREE.MeshStandardMaterial({color:0xC9CDD0, metalness:0.85, roughness:0.25});
-        const knob = new THREE.Mesh(knobGeom, knobMat);
-        const knobY = TOP_HANDLE_DOORS.indexOf(cell.type)!==-1 ? (y0+h*0.82) : (y0+h*0.18);
-        knob.position.set(cx, knobY, -recess+0.4);
-        knob.castShadow = true;
-        group.add(knob);
+          // 兩側滑軌五金(小型鉻色托架,對應官網示意圖看到的滑軌支架)
+          const railMat = frameFinishMat();
+          [x0+1.2, x1-1.2].forEach(rx=>{
+            const railGeom = new THREE.BoxGeometry(0.8, trayH*0.8, layerDepth-4);
+            const rail = new THREE.Mesh(railGeom, railMat);
+            rail.position.set(rx, trayY, trayZ);
+            rail.castShadow = true;
+            rowGroups[d].add(rail);
+          });
+          continue;
+        }
+
+        const thickness = 1.6;
+        const isAcoustic = cell.type.indexOf('acoustic') !== -1;
+        let mat;
+        if(typeDef.category==='glass'){
+          // 玻璃實際上是固定的透明(或霧面)強化玻璃,官方並不提供 RAL 上色選項,
+          // 所以這裡固定用近乎無色的清玻璃色調渲染,不採用使用者選的面板顏色。
+          mat = glassMat();
+        } else if(isAcoustic){
+          // 隔音材質為布面/軟質感,較不反光,金屬感低、粗糙度高
+          mat = acousticMat(hex);
+        } else {
+          mat = paintMat(hex);
+        }
+        const geom = new THREE.BoxGeometry(w, h, thickness);
+        const mesh = new THREE.Mesh(geom, mat);
+        mesh.position.set(cx, cy, frontBoundary + inwardSign*(recess+thickness/2));
+        mesh.castShadow = true; mesh.receiveShadow = true;
+        rowGroups[d].add(mesh);
+
+        // 門片把手:查證官方組裝說明後修正(先前方向弄反了)。掀門(door_flip_metal)實際上是
+        // 鉸鏈裝在「上緣」、靠氣壓撐桿往上掀開(像掀蓋式收納箱),所以把手在門片下方(要往上推的
+        // 那個自由邊)。下掀門(door_dropdown_metal/acoustic)則是鉸鏈裝在「下緣」、往下往外翻開
+        // 成一片橫放的平台(像掀蓋式書桌桌板),所以把手在門片上方(要往下拉的那個自由邊)。
+        // 玻璃門(door_glass)實際上是側邊鉸鏈的一般開門,把手暫時比照掀門放在上方當簡化處理;
+        // 伸縮門(door_extension_metal)沒有鉸鏈,同樣暫時比照上方把手處理。
+        if(TOP_HANDLE_DOORS.indexOf(cell.type)!==-1 || BOTTOM_HANDLE_DOORS.indexOf(cell.type)!==-1){
+          const knobGeom = new THREE.CylinderGeometry(1.1, 1.1, 0.8, 20);
+          knobGeom.rotateX(Math.PI/2);
+          const knobMat = frameFinishMat();
+          const knob = new THREE.Mesh(knobGeom, knobMat);
+          const knobY = TOP_HANDLE_DOORS.indexOf(cell.type)!==-1 ? (y0+h*0.82) : (y0+h*0.18);
+          knob.position.set(cx, knobY, frontBoundary + inwardSign*(recess-0.4));
+          knob.castShadow = true;
+          rowGroups[d].add(knob);
+        }
       }
     }
   }
 
   // 格間直立隔板(對應官方 Metal/Glass divider shelf):每一層、每個相鄰欄之間可選擇是否加裝,
   // 位置在該欄界線上,寬度跟側板一樣是薄片,高度為該層層高,顏色可個別指定。
+  // 格間隔板 / 側板 / 頂底板現在也都是「每排各自獨立」的一小片(顏色可各自指定),
+  // 貫穿的是「該排自己的深度範圍」而不是整個總深度。跟其他每排獨立的設定共用同一套
+  // depthOffsets 交界面。
   const dividerThick = 1.2;
-  for(let r=0;r<M;r++){
-    for(let b=0;b<N-1;b++){
-      const div = getDivider(r,b);
-      if(!div.enabled) continue;
-      // 只要有一側的格子存在就有意義(可以當作那一側的封邊板),兩側都不存在才跳過
-      if(!isFilled(r,b) && !isFilled(r,b+1)) continue;
-      const ry0=rowOffsets[r], ry1=rowOffsets[r+1];
-      const bx = colOffsets[b+1];
-      const dMat = new THREE.MeshStandardMaterial({color:new THREE.Color(colorHex(getDividerColor(r,b))), metalness:0.35, roughness:0.55});
-      const dGeom = new THREE.BoxGeometry(dividerThick, (ry1-ry0)-GAP*2, D-2);
-      const dMesh = new THREE.Mesh(dGeom, dMat);
-      dMesh.position.set(bx, (ry0+ry1)/2, -D/2);
-      dMesh.castShadow=true; dMesh.receiveShadow=true;
-      group.add(dMesh);
-    }
-  }
-
-  // 側板 / 頂板 / 底板(每一段都可獨立指定顏色,不指定則跟隨主色)
   const sideThick = 1.2;
-  function segMat(map, key){
-    return new THREE.MeshStandardMaterial({color:new THREE.Color(colorHex(getSegColor(map, key))), metalness:0.35, roughness:0.55});
+  function segMat(map, index, d){
+    return paintMat(colorHex(getSegColor(map, index, d)));
   }
-  // 側板:依層數分成獨立小片(對應每層各自一片,與BOM算法一致,顏色也各自獨立),
-  // 每片之間留縫隙,讓橫向的球接頭/連接管框架露出來。
-  // 面板往內縮(flush):外緣跟框架切齊、不凸出框架之外,球接頭仍會在面板外緣露出一點點。
-  if(state.leftPanel){
+  // 側板材質:依該段選的型別(玻璃固定清玻璃、隔音霧面、其他烤漆)。
+  function sideFaceMat(typeMap, colorMap, r, d){
+    const tId = getSegType(typeMap, r, d);
+    const def = CELL_TYPES.find(t=>t.id===tId) || CELL_TYPES.find(t=>t.id==='panel_fixed');
+    if(def.category==='glass') return {mat:glassMat(), def};
+    const hex2 = colorHex(getSegColor(colorMap, r, d));
+    if(def.id.indexOf('acoustic')!==-1) return {mat:acousticMat(hex2), def};
+    return {mat:paintMat(hex2), def};
+  }
+  for(let d=0; d<L; d++){
+    curTarget = rowGroups[d];
+    const segZ = (depthOffsets[d]+depthOffsets[d+1])/2;
+    const segDepth = depthLayers[d]-2;
+    // 這一排自己的欄位配置(欄數/寬度可能跟其他排不同)。所有排都從 x=0 左對齊,
+    // 右側板則各自貼齊「這一排自己」的總寬(totalWidthByLayer[d]),寬度不同的排右邊
+    // 會切齊在不同位置,呈現階梯狀,而不是被硬拉齊成同一個寬度。
+    const cols = layerCols(d), N = cols.length, colOffsets = colOffsetsByLayer[d], layerTotalWidth = totalWidthByLayer[d];
+    const rowOffsets = rowOffsetsByLayer[d], M = layerRowHeights(d).length;
+
     for(let r=0;r<M;r++){
-      if(!isFilled(r,0)) continue; // 該層第一欄不存在,左側板無附著處
-      const ry0=rowOffsets[r], ry1=rowOffsets[r+1];
-      const g = new THREE.BoxGeometry(sideThick, (ry1-ry0)-GAP*2, D-2);
-      const m = new THREE.Mesh(g, segMat('leftPanelColors', r));
-      m.position.set(-sideThick/2+recess, (ry0+ry1)/2, -D/2);
-      m.castShadow=true; m.receiveShadow=true;
-      group.add(m);
+      for(let b=0;b<N-1;b++){
+        const div = getDivider(r,b,d);
+        if(!div.enabled) continue;
+        // 只要有一側的格子存在就有意義(可以當作那一側的封邊板),兩側都不存在才跳過
+        if(!isFilled(r,b,d) && !isFilled(r,b+1,d)) continue;
+        const ry0=rowOffsets[r], ry1=rowOffsets[r+1];
+        const bx = colOffsets[b+1];
+        const dMat = paintMat(colorHex(getDividerColor(r,b,d)));
+        const dGeom = new THREE.BoxGeometry(dividerThick, (ry1-ry0)-GAP*2, segDepth);
+        const dMesh = new THREE.Mesh(dGeom, dMat);
+        dMesh.position.set(bx, (ry0+ry1)/2, segZ);
+        dMesh.castShadow=true; dMesh.receiveShadow=true;
+        rowGroups[d].add(dMesh);
+      }
     }
-  }
-  if(state.rightPanel){
-    for(let r=0;r<M;r++){
-      if(!isFilled(r,N-1)) continue; // 該層最後一欄不存在,右側板無附著處
-      const ry0=rowOffsets[r], ry1=rowOffsets[r+1];
-      const g = new THREE.BoxGeometry(sideThick, (ry1-ry0)-GAP*2, D-2);
-      const m = new THREE.Mesh(g, segMat('rightPanelColors', r));
-      m.position.set(totalWidth+sideThick/2-recess, (ry0+ry1)/2, -D/2);
-      m.castShadow=true; m.receiveShadow=true;
-      group.add(m);
+
+    // 側板:依層數分成獨立小片(對應每層各自一片,與BOM算法一致,顏色也各自獨立),
+    // 每片之間留縫隙,讓橫向的球接頭/連接管框架露出來。
+    // 面板往內縮(flush):外緣跟框架切齊、不凸出框架之外,球接頭仍會在面板外緣露出一點點。
+    if(state.leftPanel){
+      for(let r=0;r<M;r++){
+        if(!isFilled(r,0,d)) continue; // 該層第一欄不存在,左側板無附著處
+        const ry0=rowOffsets[r], ry1=rowOffsets[r+1];
+        const {mat:sm, def:sDef} = sideFaceMat('leftPanelTypes','leftPanelColors', r, d);
+        const g = new THREE.BoxGeometry(sideThick, (ry1-ry0)-GAP*2, segDepth);
+        const m = new THREE.Mesh(g, sm);
+        const sx = -sideThick/2+recess;
+        m.position.set(sx, (ry0+ry1)/2, segZ);
+        m.castShadow=true; m.receiveShadow=true;
+        rowGroups[d].add(m);
+        if(sDef.category==='door'){ // 側面門片把手:朝左外側
+          const bk = new THREE.Mesh(new THREE.CylinderGeometry(0.9,0.9,0.8,14), frameFinishMat());
+          bk.geometry.rotateZ(Math.PI/2);
+          bk.position.set(sx-1.0, (ry0+ry1)/2 + ((ry1-ry0)*0.32), segZ);
+          bk.castShadow=true; rowGroups[d].add(bk);
+        }
+      }
     }
-  }
-  // 頂板/底板:依欄數分成獨立小片(對應每欄各自一片,與BOM算法一致,顏色也各自獨立),
-  // 每片之間留縫隙,讓中間直向的支架露出來;同樣往內縮,與框架切齊不凸出。
-  // 不規則外觀下,頂/底板改為跟隨「每一欄實際最高/最低存在的那一層」,而非整櫃統一高度。
-  if(state.topPanel){
-    cols.forEach((cw,i)=>{
-      const topRow = colTopRow(i);
-      if(topRow===-1) return; // 整欄都不存在
-      const colTopY = rowOffsets[topRow+1];
-      const cx0=colOffsets[i], cx1=colOffsets[i+1];
-      const g = new THREE.BoxGeometry((cx1-cx0)-GAP*2, sideThick, D-2);
-      const m = new THREE.Mesh(g, segMat('topPanelColors', i));
-      m.position.set((cx0+cx1)/2, colTopY+sideThick/2-recess, -D/2);
-      m.castShadow=true; m.receiveShadow=true;
-      group.add(m);
-    });
-  }
-  if(state.bottomPanel){
-    cols.forEach((cw,i)=>{
-      const bottomRow = colBottomRow(i);
-      if(bottomRow===-1) return; // 整欄都不存在
-      const colBottomY = rowOffsets[bottomRow];
-      const cx0=colOffsets[i], cx1=colOffsets[i+1];
-      const g = new THREE.BoxGeometry((cx1-cx0)-GAP*2, sideThick, D-2);
-      const m = new THREE.Mesh(g, segMat('bottomPanelColors', i));
-      m.position.set((cx0+cx1)/2, colBottomY-sideThick/2+recess, -D/2);
-      m.castShadow=true; m.receiveShadow=true;
-      group.add(m);
-    });
+    if(state.rightPanel){
+      for(let r=0;r<M;r++){
+        if(!isFilled(r,N-1,d)) continue; // 該層最後一欄不存在,右側板無附著處
+        const ry0=rowOffsets[r], ry1=rowOffsets[r+1];
+        const {mat:sm, def:sDef} = sideFaceMat('rightPanelTypes','rightPanelColors', r, d);
+        const g = new THREE.BoxGeometry(sideThick, (ry1-ry0)-GAP*2, segDepth);
+        const m = new THREE.Mesh(g, sm);
+        const sx = layerTotalWidth+sideThick/2-recess;
+        m.position.set(sx, (ry0+ry1)/2, segZ);
+        m.castShadow=true; m.receiveShadow=true;
+        rowGroups[d].add(m);
+        if(sDef.category==='door'){ // 側面門片把手:朝右外側
+          const bk = new THREE.Mesh(new THREE.CylinderGeometry(0.9,0.9,0.8,14), frameFinishMat());
+          bk.geometry.rotateZ(Math.PI/2);
+          bk.position.set(sx+1.0, (ry0+ry1)/2 + ((ry1-ry0)*0.32), segZ);
+          bk.castShadow=true; rowGroups[d].add(bk);
+        }
+      }
+    }
+    // 頂板/底板:依欄數分成獨立小片(對應每欄各自一片,與BOM算法一致,顏色也各自獨立),
+    // 每片之間留縫隙,讓中間直向的支架露出來;同樣往內縮,與框架切齊不凸出。
+    // 不規則外觀下,頂/底板改為跟隨「每一欄實際最高/最低存在的那一層」,而非整櫃統一高度。
+    if(state.topPanel){
+      cols.forEach((cw,i)=>{
+        const topRow = colTopRow(i,d);
+        if(topRow===-1) return; // 整欄都不存在
+        const colTopY = rowOffsets[topRow+1];
+        const cx0=colOffsets[i], cx1=colOffsets[i+1];
+        if(hPanelDup(d, (cx0+cx1)/2, colTopY+sideThick/2-recess, segZ, (cx1-cx0)-GAP*2, segDepth)) return;
+        const g = new THREE.BoxGeometry((cx1-cx0)-GAP*2, sideThick, segDepth);
+        const m = new THREE.Mesh(g, segMat('topPanelColors', i, d));
+        m.position.set((cx0+cx1)/2, colTopY+sideThick/2-recess+rowYBias(d), segZ);
+        m.castShadow=true; m.receiveShadow=true;
+        rowGroups[d].add(m);
+      });
+    }
+    if(state.bottomPanel){
+      cols.forEach((cw,i)=>{
+        const bottomRow = colBottomRow(i,d);
+        if(bottomRow===-1) return; // 整欄都不存在
+        const colBottomY = rowOffsets[bottomRow];
+        const cx0=colOffsets[i], cx1=colOffsets[i+1];
+        if(hPanelDup(d, (cx0+cx1)/2, colBottomY-sideThick/2+recess, segZ, (cx1-cx0)-GAP*2, segDepth)) return;
+        const g = new THREE.BoxGeometry((cx1-cx0)-GAP*2, sideThick, segDepth);
+        const m = new THREE.Mesh(g, segMat('bottomPanelColors', i, d));
+        m.position.set((cx0+cx1)/2, colBottomY-sideThick/2+recess+rowYBias(d), segZ);
+        m.castShadow=true; m.receiveShadow=true;
+        rowGroups[d].add(m);
+      });
+    }
+
+    // 自由水平面板(層板/頂板/底板通用):使用者可在任一水平格線、任一欄「單獨」放置一片,
+    // 完全獨立於格子存不存在——所以把中間簍空之後,仍能自由把頂板/層板加回來。
+    for(let r=0;r<=M;r++){
+      for(let c=0;c<N;c++){
+        if(!hasFreeHPanel(r,c,d)) continue;
+        const cx0=colOffsets[c], cx1=colOffsets[c+1];
+        if(hPanelDup(d, (cx0+cx1)/2, rowOffsets[r], segZ, (cx1-cx0)-GAP*2, segDepth)) continue; // 同位置同尺寸已有水平板就不疊
+        const colr = getFreeHPanelColor(r,c,d) || state.mainColor;
+        const g = new THREE.BoxGeometry((cx1-cx0)-GAP*2, sideThick, segDepth);
+        const m = new THREE.Mesh(g, paintMat(colorHex(colr)));
+        m.position.set((cx0+cx1)/2, rowOffsets[r]+rowYBias(d), segZ);
+        m.castShadow=true; m.receiveShadow=true;
+        rowGroups[d].add(m);
+      }
+    }
   }
 
-  group.position.set(-totalWidth/2, -totalHeight/2, D/2);
+  // ---- 3D 點擊編輯用的可點擊物件(只針對「目前正在編輯那一排」產生,view 模式不產生) ----
+  buildInteractionHelpers();
+  function buildInteractionHelpers(){
+    if(editMode==='view') return;
+    const d = Math.min(currentEditLayer, L-1);
+    if(d<0) return;
+    const cols = layerCols(d), heights = layerRowHeights(d);
+    const N = cols.length, M = heights.length;
+    const colOffsets = colOffsetsByLayer[d], rowOffsets = rowOffsetsByLayer[d];
+    const segZ = (depthOffsets[d]+depthOffsets[d+1])/2, segDepth = depthLayers[d];
+    const rg = rowGroups[d];
+    function pickBox(x0,x1,y0,y1, ud, ghost){
+      const w = Math.max(Math.abs(x1-x0)-1, 1), h = Math.max(Math.abs(y1-y0)-1, 1);
+      const geo = new THREE.BoxGeometry(w, h, Math.max(segDepth-1,1));
+      const mat = ghost
+        ? new THREE.MeshBasicMaterial({color:0x3a5468, transparent:true, opacity:0.22, depthWrite:false})
+        : new THREE.MeshBasicMaterial({color:0xffffff, transparent:true, opacity:0.0, depthWrite:false});
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set((x0+x1)/2, (y0+y1)/2, segZ);
+      mesh.userData = ud; mesh.renderOrder = 999;
+      rg.add(mesh);
+      if(ghost){
+        const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({color:0x1e2f3c, transparent:true, opacity:0.7}));
+        edges.position.copy(mesh.position);
+        rg.add(edges);
+      }
+    }
+    // 指定 3D 位置的細長佔位物件(逐根鋼管、單片層板用):present 做成透明可點擊(點了拆掉)、
+    // absent 做成藍色可見導引條(點了補上)。cz 可指定,才能分別放在近端/遠端平面或深度方向。
+    function pickAt(cx,cy,cz,w,h,dp, ud, ghost){
+      const geo = new THREE.BoxGeometry(Math.max(w,1),Math.max(h,1),Math.max(dp,1));
+      const mat = ghost
+        ? new THREE.MeshBasicMaterial({color:0x2f6df0, transparent:true, opacity:0.5, depthWrite:false})
+        : new THREE.MeshBasicMaterial({color:0xffffff, transparent:true, opacity:0.0, depthWrite:false});
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(cx, cy, cz);
+      mesh.userData = ud; mesh.renderOrder = 999;
+      rg.add(mesh);
+    }
+    function pickCentered(cx,cy,w,h,dp, ud, ghost){ pickAt(cx,cy,segZ,w,h,dp,ud,ghost); }
+    if(editMode==='tube'){
+      const TW = 2.8; // 佔位鋼管的視覺粗細
+      const phys = computePhysicalFrame(d);
+      const zN = depthOffsets[d], zF = depthOffsets[d+1];
+      const planeZ = pl=> (pl===0 ? zN : zF);
+      const hasBall = (pl,c,r)=> phys.balls.has(pl+'_'+c+'_'+r);
+      // 橫向鋼管:平面 pl(0=近端,1=遠端)、水平線 r、欄段 c
+      for(let pl=0;pl<2;pl++) for(let r=0;r<=M;r++) for(let c=0;c<N;c++){
+        const present = phys.H.has(pl+'_'+c+'_'+r);
+        // 現有的一律可拆;空位只在「至少一端已有球接頭」時才顯示導引(避免整個空間都是導引條)
+        if(!present && !(hasBall(pl,c,r)||hasBall(pl,c+1,r))) continue;
+        pickAt((colOffsets[c]+colOffsets[c+1])/2, rowOffsets[r], planeZ(pl), (colOffsets[c+1]-colOffsets[c]), TW, TW, {kind:'tube',d:d,fam:'H',pl:pl,c:c,r:r}, !present);
+      }
+      // 縱向鋼管:平面 pl、垂直線 c、層段 r
+      for(let pl=0;pl<2;pl++) for(let c=0;c<=N;c++) for(let r=0;r<M;r++){
+        const present = phys.V.has(pl+'_'+c+'_'+r);
+        if(!present && !(hasBall(pl,c,r)||hasBall(pl,c,r+1))) continue;
+        pickAt(colOffsets[c], (rowOffsets[r]+rowOffsets[r+1])/2, planeZ(pl), TW, (rowOffsets[r+1]-rowOffsets[r]), TW, {kind:'tube',d:d,fam:'V',pl:pl,c:c,r:r}, !present);
+      }
+      // 深度鋼管:節點(c,r)連接近端↔遠端那一根
+      for(let c=0;c<=N;c++) for(let r=0;r<=M;r++){
+        const present = phys.Z.has(c+'_'+r);
+        if(!present && !(hasBall(0,c,r)||hasBall(1,c,r))) continue;
+        pickAt(colOffsets[c], rowOffsets[r], (zN+zF)/2, TW, TW, Math.abs(zF-zN), {kind:'tube',d:d,fam:'Z',pl:0,c:c,r:r}, !present);
+      }
+    } else if(editMode==='shelf'){
+      for(let r=0;r<=M;r++) for(let c=0;c<N;c++){ // 每一水平格線、每一欄一個可點位置
+        const present = hasFreeHPanel(r,c,d);
+        pickCentered((colOffsets[c]+colOffsets[c+1])/2, rowOffsets[r], (colOffsets[c+1]-colOffsets[c])-2, 2.8, segDepth, {kind:'hslot',d:d,r:r,c:c}, !present);
+      }
+    } else if(editMode==='panel' || editMode==='remove'){
+      for(let r=0;r<M;r++) for(let c=0;c<N;c++){
+        if(!isFilled(r,c,d)) continue;
+        pickBox(colOffsets[c],colOffsets[c+1],rowOffsets[r],rowOffsets[r+1], {kind:'cell',d:d,r:r,c:c}, false);
+      }
+    } else if(editMode==='frame'){
+      // (1) 內部空格:相鄰有存在的格才顯示(避免整個平面都是佔位格)
+      for(let r=0;r<M;r++) for(let c=0;c<N;c++){
+        if(isFilled(r,c,d)) continue;
+        const adj = isFilled(r+1,c,d)||isFilled(r-1,c,d)||isFilled(r,c+1,d)||isFilled(r,c-1,d);
+        if(!adj) continue;
+        pickBox(colOffsets[c],colOffsets[c+1],rowOffsets[r],rowOffsets[r+1], {kind:'ghost',d:d,r:r,c:c,grow:null}, true);
+      }
+      // (2) 四邊往外擴充一格:右加欄、左加欄、上加層、下加層
+      const newWr = cols[N-1], newWl = cols[0], newHt = heights[M-1], newHb = heights[0];
+      const rightX0 = colOffsets[N], leftX1 = colOffsets[0];
+      const topY0 = rowOffsets[M], botY1 = rowOffsets[0];
+      for(let r=0;r<M;r++){
+        if(isFilled(r,N-1,d)) pickBox(rightX0, rightX0+newWr, rowOffsets[r], rowOffsets[r+1], {kind:'ghost',d:d,r:r,c:N,grow:'right'}, true);
+        if(isFilled(r,0,d))   pickBox(leftX1-newWl, leftX1, rowOffsets[r], rowOffsets[r+1], {kind:'ghost',d:d,r:r,c:-1,grow:'left'}, true);
+      }
+      for(let c=0;c<N;c++){
+        if(isFilled(M-1,c,d)) pickBox(colOffsets[c], colOffsets[c+1], topY0, topY0+newHt, {kind:'ghost',d:d,r:M,c:c,grow:'top'}, true);
+        if(isFilled(0,c,d))   pickBox(colOffsets[c], colOffsets[c+1], botY1-newHb, botY1, {kind:'ghost',d:d,r:-1,c:c,grow:'bottom'}, true);
+      }
+    }
+  }
+
+  // 位移已經分別烘進每一排的 pivot(pv.position),group 本身維持在原點即可。
+  group.position.set(0, 0, 0);
   three.ground.position.y = -totalHeight/2;
 
-  const diag = Math.sqrt(totalWidth*totalWidth + totalHeight*totalHeight + D*D);
-  three.setRadius(diag*0.9 + 25);
+  // 依整體對角線大小,但只在「第一次建立」時自動置中縮放;之後的每次編輯都保留使用者
+  // 目前的視角/縮放/平移(不再每點一下就把視角彈回去),要重設可按「重新置中」。
+  const diag = Math.sqrt(totalWidth*totalWidth + totalHeight*totalHeight + totalDepth*totalDepth);
+  three.lastDiag = diag;
+  if(!three.framedOnce){ three.frame(diag); three.framedOnce = true; }
 
+  const depthDesc = L>1 ? (depthLayers.join('+')+'cm,共'+L+'排') : (totalDepth+'cm');
+  const widthsVaryByLayer = L>1 && totalWidthByLayer.some(w=>w!==totalWidth);
+  const widthDesc = widthsVaryByLayer ? (totalWidth+'cm(各排寬度不同,以最寬排為準)') : (totalWidth+'cm');
+  const heightsVaryByLayer = L>1 && totalHeightByLayer.some(h=>h!==totalHeight);
+  const heightDesc = heightsVaryByLayer ? (totalHeight+'cm(各排高度不同,以最高排為準)') : (totalHeight+'cm');
   document.getElementById('dimsSummary').textContent =
-    `總寬 ${totalWidth}cm × 總高 ${totalHeight}cm × 深度 ${D}cm　主色:${colorName(state.mainColor)}`;
+    `總寬 ${widthDesc} × 總高 ${heightDesc} × 深度 ${depthDesc}　主色:${colorName(state.mainColor)}`;
+}
+
+// 依世界座標把「所有排」的球接頭/鋼管去重後計數,跟 3D 畫面用同一套邏輯——這樣自由擺放
+// (L型/十字/錯開)時,交叉處真正重疊的支點與鋼管只會被算一次,不會重複計價。
+function dedupedFrameCounts(){
+  const depthLayers = state.depthLayers, L = depthLayers.length;
+  const facing = state.depthFacing || [], rowShift = state.rowShift || [];
+  const colOffsetsByLayer=[], totalWidthByLayer=[], rowOffsetsByLayer=[], totalHeightByLayer=[];
+  for(let d=0;d<L;d++){
+    const cols=layerCols(d); const off=[0]; for(let i=0;i<cols.length;i++) off.push(off[i]+cols[i]); colOffsetsByLayer.push(off); totalWidthByLayer.push(off[cols.length]);
+    const hs=layerRowHeights(d); const ro=[0]; for(let i=0;i<hs.length;i++) ro.push(ro[i]+hs[i]); rowOffsetsByLayer.push(ro); totalHeightByLayer.push(ro[hs.length]);
+  }
+  const totalHeight=Math.max.apply(null,totalHeightByLayer);
+  const depthOffsets=[0]; for(let i=0;i<L;i++) depthOffsets.push(depthOffsets[i]-depthLayers[i]);
+  // 座標轉換必須跟 rebuild3D 完全一致(前左角 anchor 制),BOM 去重與 3D 畫面才會同一份數字。
+  const rowXf=[];
+  for(let d=0;d<L;d++){
+    const sh=rowShift[d]||{dx:0,dz:0,rot:0};
+    const angle=facingAngle(facing[d]||'front')+(sh.rot||0)*Math.PI/180;
+    rowXf.push({zFront:depthOffsets[d], angle, px:(sh.dx||0), py:-totalHeight/2, pz:depthOffsets[d]+(sh.dz||0)});
+  }
+  function wp(d,gx,gy,gz){const xf=rowXf[d];const lx=gx,lz=gz-xf.zFront,s=Math.sin(xf.angle),c=Math.cos(xf.angle);return{x:lx*c+lz*s+xf.px,y:gy+xf.py,z:-lx*s+lz*c+xf.pz};}
+  function planeZ(d,pl){return pl===0?depthOffsets[d]:depthOffsets[d+1];}
+  // 跟 3D 畫面用同一個具容差的去重器,交叉處共用的支點/鋼管只算一次。
+  const dd = makeDedupe(DEDUPE_TOL);
+  let balls=0; const tubeTally=zeroTierMap();
+  function addT(d,ax,ay,az,bx,by,bz,tier){
+    const wa=wp(d,ax,ay,az),wb=wp(d,bx,by,bz);
+    if(dd.seenTube([wa.x,wa.y,wa.z],[wb.x,wb.y,wb.z])) return;
+    if(typeof tubeTally[tier]==='number') tubeTally[tier]+=1;
+  }
+  for(let d=0;d<L;d++){
+    const cols=layerCols(d), heights=layerRowHeights(d), colOffsets=colOffsetsByLayer[d], rowOffsets=rowOffsetsByLayer[d];
+    const phys=computePhysicalFrame(d);
+    phys.balls.forEach(k=>{const p=k.split('_');const pl=+p[0],c=+p[1],r=+p[2];const w=wp(d,colOffsets[c],rowOffsets[r],planeZ(d,pl));if(dd.seenBall(w.x,w.y,w.z))return;balls++;});
+    phys.H.forEach(k=>{const p=k.split('_');const pl=+p[0],c=+p[1],r=+p[2];addT(d,colOffsets[c],rowOffsets[r],planeZ(d,pl), colOffsets[c+1],rowOffsets[r],planeZ(d,pl), cols[c]);});
+    phys.V.forEach(k=>{const p=k.split('_');const pl=+p[0],c=+p[1],r=+p[2];addT(d,colOffsets[c],rowOffsets[r],planeZ(d,pl), colOffsets[c],rowOffsets[r+1],planeZ(d,pl), heights[r]);});
+    phys.Z.forEach(k=>{const p=k.split('_');const c=+p[0],r=+p[1];addT(d,colOffsets[c],rowOffsets[r],depthOffsets[d], colOffsets[c],rowOffsets[r],depthOffsets[d+1], depthLayers[d]);});
+  }
+  return {balls, tubeTally};
 }
 
 /* ---------- BOM 與報價計算 ---------- */
 function recompute(){
-  const N = state.cols.length;
-  const M = state.rows;
-  const rowHeights = state.rowHeights;
-  const D = state.depth;
+  const depthLayers = state.depthLayers;
+  const L = depthLayers.length;
+  const totalDepth = depthLayers.reduce((a,b)=>a+b,0);
 
   const bom = [];
   let grand = 0;
   const warnings = [];
 
-  // 球接頭/連接管數量改為與 3D 實際生成的框架完全一致(computeFrameSets),
-  // 不規則外觀下,消失的格子其周邊多餘的框架也會自動不列入計算。
-  const frame = computeFrameSets();
-  const balls = frame.points.size*2;
+  // 球接頭/連接管數量改為與 3D 實際生成的框架完全一致,跟 rebuild3D 用同一套邏輯:
+  // 欄位配置、層高配置現在都是「每排各自獨立」,框架要逐排各自計算;相鄰兩排的「欄寬」跟
+  // 「層高」都完全相同時,交界處只算一次(避免五金數量灌水),只要有一邊不同,交界處就要
+  // 各自計算一份。
+  // 球接頭/連接管數量:直接用「世界座標去重」後的結果,跟 3D 畫面完全一致。自由擺放時
+  // 交叉處真正重疊(共用)的支點與鋼管只會算一次,不會重複計價;沒有重疊時就跟原本一樣。
+  const _fc = dedupedFrameCounts();
+  let balls = _fc.balls;
+  const tubeTally = _fc.tubeTally;
   const ballSub = balls*state.prices.ball;
   bom.push({label:'球接頭', spec:'—', qty:balls, unit:state.prices.ball, subtotal:ballSub});
   grand += ballSub;
-
-  const tubeTally = zeroTierMap();
-  frame.hTubes.forEach(key=>{
-    const p = key.split('_'); const c = +p[0];
-    tubeTally[state.cols[c]] += 2; // 前+後各一根
-  });
-  // 每一支直向連接管的長度取決於「它所在那一層」的實際高度,層高不再統一,
-  // 所以要逐一依 vTubes 各自的層索引分別歸類,不能再整批加到單一 H 裡。
-  frame.vTubes.forEach(key=>{
-    const p = key.split('_'); const r = +p[1];
-    tubeTally[rowHeights[r]] += 2; // 前+後各一根
-  });
-  tubeTally[D] += frame.points.size;
   WH_TIERS.forEach(t=>{
     if(tubeTally[t]>0){
       const sub = tubeTally[t]*state.prices.tube[t];
@@ -1611,67 +2646,113 @@ function recompute(){
   });
 
   const panelFixedPrice = state.prices['panel_fixed'];
-  // 側板依「所在那一層的實際高度」分組列出(層高不同就分成不同列,跟背板依欄寬分組是同一邏輯)。
-  if(state.leftPanel){
-    const heightTally = {};
-    for(let r=0;r<M;r++){ if(isFilled(r,0)){ const h=rowHeights[r]; heightTally[h]=(heightTally[h]||0)+1; } }
-    Object.keys(heightTally).forEach(h=>{
-      const qty = heightTally[h];
-      const sub = qty*panelFixedPrice[h];
-      bom.push({label:'左側板', spec:`${h}cm(每層1片)`, qty, unit:panelFixedPrice[h], subtotal:sub});
+  // 側板/頂底板/背板/隔板現在都要逐排各自計算(欄位配置、外觀輪廓都可能因排而異,
+  // 不能再假設所有排都一樣、直接乘以排數 L)。側板依「所在那一層的實際高度」分組列出,
+  // 頂底板依「該欄實際寬度」分組列出(層高/寬度不同就分成不同列)。
+  // 左/右側板:每段可以是不同型別(固定/沖孔/玻璃/門片...),依「型別+層高」分組計價。
+  function sideBom(label, colOf, typeMap){
+    const tally = {}; // "typeId_h" -> qty
+    for(let d=0;d<L;d++){
+      const cols = layerCols(d), heights = layerRowHeights(d), M = heights.length;
+      for(let r=0;r<M;r++){
+        if(!isFilled(r, colOf(cols), d)) continue;
+        const t = getSegType(typeMap, r, d);
+        const kk = t+'__'+heights[r];
+        tally[kk]=(tally[kk]||0)+1;
+      }
+    }
+    Object.keys(tally).forEach(kk=>{
+      const idx = kk.indexOf('__');
+      const t = kk.slice(0,idx), h = kk.slice(idx+2);
+      const def = CELL_TYPES.find(x=>x.id===t);
+      const priceMap = state.prices[t] || panelFixedPrice;
+      const qty = tally[kk];
+      const sub = qty*(priceMap[h]||0);
+      const typeName = (t==='panel_fixed') ? '' : `,${def?def.name:t}`;
+      bom.push({label, spec:`${h}cm(每層每排1片${typeName})`, qty, unit:(priceMap[h]||0), subtotal:sub});
       grand += sub;
     });
   }
-  if(state.rightPanel){
-    const heightTally = {};
-    for(let r=0;r<M;r++){ if(isFilled(r,N-1)){ const h=rowHeights[r]; heightTally[h]=(heightTally[h]||0)+1; } }
-    Object.keys(heightTally).forEach(h=>{
-      const qty = heightTally[h];
-      const sub = qty*panelFixedPrice[h];
-      bom.push({label:'右側板', spec:`${h}cm(每層1片)`, qty, unit:panelFixedPrice[h], subtotal:sub});
-      grand += sub;
-    });
-  }
+  if(state.leftPanel)  sideBom('左側板', cols=>0, 'leftPanelTypes');
+  if(state.rightPanel) sideBom('右側板', cols=>cols.length-1, 'rightPanelTypes');
   if(state.topPanel){
-    state.cols.forEach((w,i)=>{
-      if(colTopRow(i)===-1) return;
-      const sub=panelFixedPrice[w]; bom.push({label:'頂板', spec:`第${i+1}欄 ${w}cm`, qty:1, unit:panelFixedPrice[w], subtotal:sub}); grand+=sub;
+    const widthTally = {};
+    for(let d=0;d<L;d++){ layerCols(d).forEach((w,i)=>{ if(colTopRow(i,d)!==-1) widthTally[w]=(widthTally[w]||0)+1; }); }
+    Object.keys(widthTally).forEach(w=>{
+      const qty = widthTally[w];
+      const sub = panelFixedPrice[w]*qty;
+      bom.push({label:'頂板', spec:`${w}cm`, qty, unit:panelFixedPrice[w], subtotal:sub}); grand+=sub;
     });
   }
   if(state.bottomPanel){
-    state.cols.forEach((w,i)=>{
-      if(colBottomRow(i)===-1) return;
-      const sub=panelFixedPrice[w]; bom.push({label:'底板', spec:`第${i+1}欄 ${w}cm`, qty:1, unit:panelFixedPrice[w], subtotal:sub}); grand+=sub;
+    const widthTally = {};
+    for(let d=0;d<L;d++){ layerCols(d).forEach((w,i)=>{ if(colBottomRow(i,d)!==-1) widthTally[w]=(widthTally[w]||0)+1; }); }
+    Object.keys(widthTally).forEach(w=>{
+      const qty = widthTally[w];
+      const sub = panelFixedPrice[w]*qty;
+      bom.push({label:'底板', spec:`${w}cm`, qty, unit:panelFixedPrice[w], subtotal:sub}); grand+=sub;
     });
   }
-  // 背板:每格獨立勾選,依欄寬分組列出(只計算勾選且格子存在的)
+  // 自由水平面板(使用者自行放置的層板/頂板/底板),依欄寬分級計價。
   {
-    const backTally = {};
-    for(let r=0;r<M;r++){
-      for(let c=0;c<N;c++){
-        if(!isFilled(r,c)) continue;
-        if(!getBackPanel(r,c)) continue;
-        const w = state.cols[c];
-        backTally[w] = (backTally[w]||0)+1;
+    const freeTally = {};
+    for(let d=0;d<L;d++){
+      const cols = layerCols(d), M = layerRowHeights(d).length;
+      for(let r=0;r<=M;r++){
+        for(let c=0;c<cols.length;c++){
+          if(!hasFreeHPanel(r,c,d)) continue;
+          freeTally[cols[c]] = (freeTally[cols[c]]||0)+1;
+        }
       }
     }
-    Object.keys(backTally).forEach(w=>{
-      const qty = backTally[w];
+    Object.keys(freeTally).forEach(w=>{
+      const qty = freeTally[w];
       const sub = qty*panelFixedPrice[w];
-      bom.push({label:'背板', spec:`${w}cm(每格1片)`, qty, unit:panelFixedPrice[w], subtotal:sub});
+      bom.push({label:'水平面板(自訂)', spec:`${w}cm(每片)`, qty, unit:panelFixedPrice[w], subtotal:sub});
+      grand += sub;
+    });
+  }
+  // 背面面板/門片:每格、每排獨立,依「型別+欄寬」分組列出(只計算格子存在的)
+  {
+    const backTally = {};
+    for(let d=0;d<L;d++){
+      const cols = layerCols(d), M = layerRowHeights(d).length;
+      for(let r=0;r<M;r++){
+        for(let c=0;c<cols.length;c++){
+          if(!isFilled(r,c,d)) continue;
+          const bf = getBackPanel(r,c,d);
+          if(!bf) continue;
+          const kk = (bf.type||'panel_fixed')+'__'+cols[c];
+          backTally[kk] = (backTally[kk]||0)+1;
+        }
+      }
+    }
+    Object.keys(backTally).forEach(kk=>{
+      const idx = kk.indexOf('__');
+      const t = kk.slice(0,idx), w = kk.slice(idx+2);
+      const def = CELL_TYPES.find(x=>x.id===t);
+      const priceMap = state.prices[t] || panelFixedPrice;
+      const qty = backTally[kk];
+      const sub = qty*(priceMap[w]||0);
+      const typeName = (t==='panel_fixed') ? '' : `,${def?def.name:t}`;
+      bom.push({label:'背面板/門', spec:`${w}cm(每格1片${typeName})`, qty, unit:(priceMap[w]||0), subtotal:sub});
       grand += sub;
     });
   }
 
   // 格間直立隔板(兩側都要存在才有意義),同樣依「所在那一層的實際高度」分組。
+  // 隔板是否啟用、欄位配置現在都是「每排各自獨立」,所以要逐排檢查,不能直接乘 L。
   {
     const dividerTally = {};
-    for(let r=0;r<M;r++){
-      for(let b=0;b<N-1;b++){
-        const d = getDivider(r,b);
-        if(d.enabled && (isFilled(r,b) || isFilled(r,b+1))){
-          const h = rowHeights[r];
-          dividerTally[h] = (dividerTally[h]||0)+1;
+    for(let ld=0;ld<L;ld++){
+      const cols = layerCols(ld), heights = layerRowHeights(ld), M = heights.length;
+      for(let r=0;r<M;r++){
+        for(let b=0;b<cols.length-1;b++){
+          const divCell = getDivider(r,b,ld);
+          if(divCell.enabled && (isFilled(r,b,ld) || isFilled(r,b+1,ld))){
+            const h = heights[r];
+            dividerTally[h] = (dividerTally[h]||0)+1;
+          }
         }
       }
     }
@@ -1688,30 +2769,40 @@ function recompute(){
   // 來說太繁瑣;這裡先用寬度分級當作實用的折衷做法)。層高不再統一之後,規格欄位改成同時
   // 顯示「寬x實際高」,讓店家清楚看到真實尺寸,如果某幾層特別高/矮,價格明顯不合理時
   // 可以自行手動調整那個寬度分級的單價,或在報價單備註裡說明。
-  const heightsVary = new Set(state.rowHeights).size > 1;
+  // 高度是否不一致現在要看「所有排、所有層」合起來的完整清單(不只是單一排自己的層高),
+  // 因為每排的層高現在也是各自獨立的,排跟排之間也可能不一樣。
+  const allHeights = [];
+  for(let d=0;d<L;d++) layerRowHeights(d).forEach(h=>allHeights.push(h));
+  const heightsVary = new Set(allHeights).size > 1;
   if(heightsVary){
     warnings.push('目前各層高度不完全相同:面板/門片單價表只依「寬度」分級,不會因為某一層比較高/矮而自動調整單價,如有明顯落差請自行調整對應寬度的單價,或洽 USM 確認實際報價。');
   }
   const cellCount = {};
-  for(let r=0;r<M;r++){
-    for(let c=0;c<N;c++){
-      if(!isFilled(r,c)) continue; // 這一格不存在,不計入BOM
-      const cell = getCell(r,c);
-      if(cell.type==='open') continue;
-      const w = state.cols[c];
-      const h = state.rowHeights[r];
-      const typeDef = CELL_TYPES.find(t=>t.id===cell.type);
-      let unit;
-      if(typeDef.kind==='tiered'){
-        unit = state.prices[cell.type][w];
-      } else {
-        unit = state.prices[cell.type];
-        if(D!==50) warnings.push(`第${r+1}層/第${c+1}欄 選用${typeDef.name},但目前深度為${D}cm(官方規格建議深度50cm),請與 USM 確認相容性。`);
+  for(let d=0;d<L;d++){
+    const cols = layerCols(d), heights = layerRowHeights(d), M = heights.length;
+    for(let r=0;r<M;r++){
+      for(let c=0;c<cols.length;c++){
+        if(!isFilled(r,c,d)) continue; // 這一格不存在,不計入BOM
+        const cell = getCell(r,c,d);
+        if(cell.type==='open') continue;
+        const w = cols[c];
+        const h = heights[r];
+        const typeDef = CELL_TYPES.find(t=>t.id===cell.type);
+        let unit;
+        if(typeDef.kind==='tiered'){
+          unit = state.prices[cell.type][w];
+        } else {
+          unit = state.prices[cell.type];
+          if(depthLayers[d]!==50){
+            const layerNote = L>1 ? `第${d+1}排/` : '';
+            warnings.push(`${layerNote}第${r+1}層/第${c+1}欄 選用${typeDef.name},但該排目前深度為${depthLayers[d]}cm(官方規格建議深度50cm),請與 USM 確認相容性。`);
+          }
+        }
+        const key = cell.type+'_'+w+'_'+h;
+        if(!cellCount[key]) cellCount[key] = {label:typeDef.name, spec:`${w}cm × ${h}cm`, qty:0, unit:unit, subtotal:0};
+        cellCount[key].qty += 1;
+        cellCount[key].subtotal += unit;
       }
-      const key = cell.type+'_'+w+'_'+h;
-      if(!cellCount[key]) cellCount[key] = {label:typeDef.name, spec:`${w}cm × ${h}cm`, qty:0, unit:unit, subtotal:0};
-      cellCount[key].qty += 1;
-      cellCount[key].subtotal += unit;
     }
   }
   Object.values(cellCount).forEach(item=>{ bom.push(item); grand += item.subtotal; });
@@ -1727,37 +2818,472 @@ function recompute(){
   document.getElementById('warnBox').innerHTML = warnings.length ? ('⚠ ' + warnings.join('<br>⚠ ')) : '';
 }
 
+/* ---------- 多排擺放:一鍵排列(直線/L/U)與俯視小地圖 ----------
+   跟 rebuild3D 用同一套「預設擺位」公式:row d 預設中心 px = W_d/2 - TW/2 + dx、
+   pz = cz_d + TD/2 + dz,rot 疊加在開口方向角之上。一鍵排列就是幫使用者算好 dx/dz/rot。 */
+function computeRowDefaults(){
+  const L = state.depthLayers.length;
+  const widths = [], depthOffsets = [0];
+  for(let d=0; d<L; d++){
+    widths.push(layerCols(d).reduce((x,y)=>x+y,0));
+    depthOffsets.push(depthOffsets[d]-state.depthLayers[d]);
+  }
+  const TW = Math.max.apply(null, widths), TD = -depthOffsets[L];
+  return {L, widths, depthOffsets, TW, TD};
+}
+// 預設基準點(前左角):x=0(左對齊)、z=依排序往後堆疊的前緣。不參照其他排的尺寸。
+function defaultAnchor(d, g){
+  return { ax: 0, az: g.depthOffsets[d] };
+}
+function ensureRowCount(n){
+  const fillDepth = state.depthLayers.length ? state.depthLayers[state.depthLayers.length-1] : 35;
+  const fillCols = state.layerCols.length ? state.layerCols[state.layerCols.length-1].slice() : [75];
+  const fillRowHeights = state.layerRowHeights.length ? state.layerRowHeights[state.layerRowHeights.length-1].slice() : [35,35,35];
+  if(!Array.isArray(state.rowShift)) state.rowShift = [];
+  while(state.depthLayers.length < n){
+    state.depthLayers.push(fillDepth); state.depthFacing.push('front');
+    state.rowShift.push({dx:0,dz:0,rot:0});
+    state.layerCols.push(fillCols.slice()); state.layerRowHeights.push(fillRowHeights.slice());
+  }
+}
+function applyLayoutLine(){
+  for(let d=0; d<state.depthLayers.length; d++){ state.rowShift[d]={dx:0,dz:0,rot:0}; state.depthFacing[d]='front'; }
+  renderAll();
+}
+// L 型:第1排是正面橫桿;第2排旋轉90度接在左端往後延伸(開口朝L型內側)。
+// 排的近端貼齊第1排背面,轉角柱位置重合時由世界座標去重自動共用(畫面與BOM一致)。
+function applyLayoutL(){
+  ensureRowCount(2);
+  for(let d=0; d<state.depthLayers.length; d++){ state.rowShift[d]={dx:0,dz:0,rot:0}; state.depthFacing[d]='front'; }
+  const g = computeRowDefaults();
+  const D0=state.depthLayers[0], D1=state.depthLayers[1];
+  // 基準點=前左角、旋轉繞前左角。rot=90 時佔位為 x∈[ax-D1, ax]、z∈[az-W1, az],開口朝右(+X,L型內側)。
+  // 目標:臂貼齊第1排左緣、從第1排背面往後延伸 → ax=D1、az=-D0。
+  // dz 是相對「預設前緣 depthOffsets[1]=-D0」的位移 → dz=0;dx=D1。
+  state.rowShift[1] = { dx:+D1.toFixed(1), dz:0, rot:90 };
+  renderAll();
+}
+// U 型(ㄇ字):第1排正面橫桿,第2排左臂(旋轉90度、開口朝右/內),第3排右臂(旋轉-90度、開口朝左/內)。
+function applyLayoutU(){
+  ensureRowCount(3);
+  for(let d=0; d<state.depthLayers.length; d++){ state.rowShift[d]={dx:0,dz:0,rot:0}; state.depthFacing[d]='front'; }
+  const g = computeRowDefaults();
+  const W0=g.widths[0], D0=state.depthLayers[0];
+  const W1=g.widths[1], D1=state.depthLayers[1];
+  const W2=g.widths[2], D2=state.depthLayers[2];
+  // 左臂同 L 型;右臂 rot=-90 時佔位 x∈[ax, ax+D2]、z∈[az, az+W2],開口朝左(-X,內側)。
+  // 目標:右臂貼齊第1排右緣(x∈[W0-D2, W0])、z∈[-D0-W2, -D0] → ax=W0-D2、az=-D0-W2。
+  // 預設前緣 off[2]=-(D0+D1) → dz = az - off[2] = D1 - W2;dx = W0 - D2。
+  state.rowShift[1] = { dx:+D1.toFixed(1), dz:0, rot:90 };
+  state.rowShift[2] = { dx:+(W0-D2).toFixed(1), dz:+(D1-W2).toFixed(1), rot:-90 };
+  renderAll();
+}
+// Z 字型:第1排正面橫桿(左前),第2排直臂接第1排「右端」往後(rot=-90,開口朝左/內),
+// 第3排橫桿接在直臂後端、往右延伸(rot=180,開口朝後)——俯視呈 Z/S 形。
+function applyLayoutZ(){
+  ensureRowCount(3);
+  for(let d=0; d<state.depthLayers.length; d++){ state.rowShift[d]={dx:0,dz:0,rot:0}; state.depthFacing[d]='front'; }
+  const g = computeRowDefaults();
+  const W0=g.widths[0], D0=state.depthLayers[0];
+  const W1=g.widths[1], D1=state.depthLayers[1];
+  const W2=g.widths[2], D2=state.depthLayers[2];
+  // 直臂 rot=-90:佔位 x∈[ax, ax+D1]、z∈[az, az+W1] → 目標 x∈[W0-D1, W0]、z∈[-D0-W1, -D0]
+  //   → ax=W0-D1、az=-D0-W1;off[1]=-D0 → dz=-W1。
+  state.rowShift[1] = { dx:+(W0-D1).toFixed(1), dz:+(-W1).toFixed(1), rot:-90 };
+  // 後橫桿 rot=180:佔位 x∈[ax-W2, ax]、z∈[az, az+D2] → 目標 x∈[W0-D1, W0-D1+W2]、
+  //   z∈[-D0-W1-D2, -D0-W1] → ax=W0-D1+W2、az=-D0-W1-D2;off[2]=-(D0+D1) → dz=D1-W1-D2。
+  state.rowShift[2] = { dx:+(W0-D1+W2).toFixed(1), dz:+(D1-W1-D2).toFixed(1), rot:180 };
+  renderAll();
+}
+// 俯視小地圖:畫出每一排(含位移/旋轉)的平面佔位;粗邊 = 開口方向那一側。
+let planMiniXf = null;   // 最近一次繪製的縮放/平移(拖曳換算用)
+let planMiniGeom = null; // 各排的世界幾何(命中測試用)
+let planMiniDragging = false; // 拖曳中凍結縮放,避免圖一邊拖一邊重新縮放
+function drawPlanMini(){
+  const cv = document.getElementById('planMini');
+  if(!cv || !cv.getContext) return;
+  const ctx = cv.getContext('2d');
+  if(!ctx) return;
+  const CW = cv.width, CH = cv.height;
+  ctx.clearRect(0,0,CW,CH);
+  const rows = currentRowGeom();
+  planMiniGeom = rows;
+  let minX=1e9,maxX=-1e9,minZ=1e9,maxZ=-1e9;
+  rows.forEach(r=>rowCorners(r).forEach(pt=>{ minX=Math.min(minX,pt.x); maxX=Math.max(maxX,pt.x); minZ=Math.min(minZ,pt.z); maxZ=Math.max(maxZ,pt.z); }));
+  const pad=12;
+  let sc, ox, oy;
+  if(planMiniDragging && planMiniXf){
+    ({sc, ox, oy} = planMiniXf); // 拖曳中沿用原縮放
+  } else {
+    sc = Math.min((CW-pad*2)/Math.max(maxX-minX,1), (CH-pad*2)/Math.max(maxZ-minZ,1));
+    ox = (CW - (maxX-minX)*sc)/2 - minX*sc;
+    oy = (CH - (maxZ-minZ)*sc)/2 - minZ*sc;
+    planMiniXf = {sc, ox, oy};
+  }
+  const M = pt=>({ x: ox + pt.x*sc, y: oy + pt.z*sc });
+  drawPlanRows(ctx, rows, M, {labelFont:'10px sans-serif', frontW:3, lineW:1});
+  ctx.fillStyle='#9a9a94'; ctx.font='9px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='bottom';
+  ctx.fillText('▼ 你在這一側(前)', CW/2, CH-1);
+}
+// 共用的排繪製:實際佔用的欄區段畫實心(這才是真實櫃體的俯視佔位),
+// 有被移除欄時整排外框補一圈虛線做參考——圖上「連在一起」與否,以實心部分為準。
+function drawPlanRows(ctx, rows, M, opt){
+  rows.forEach(r=>{
+    const spans = (r.spans && r.spans.length) ? r.spans : [[-r.W/2, r.W/2]];
+    const fullSpan = spans.length===1 && Math.abs(spans[0][0]+r.W/2)<0.01 && Math.abs(spans[0][1]-r.W/2)<0.01;
+    if(!fullSpan){ // 虛線外框(僅參考,實際佔用以實心為準)
+      const q = rowCorners(r).map(M);
+      ctx.save(); ctx.setLineDash([4,3]);
+      ctx.beginPath(); ctx.moveTo(q[0].x,q[0].y);
+      for(let k=1;k<4;k++) ctx.lineTo(q[k].x,q[k].y);
+      ctx.closePath(); ctx.strokeStyle='rgba(58,84,104,0.4)'; ctx.lineWidth=1; ctx.stroke();
+      ctx.restore();
+    }
+    spans.forEach(sp=>{
+      const q = spanCorners(r, sp[0], sp[1]).map(M);
+      ctx.beginPath(); ctx.moveTo(q[0].x,q[0].y);
+      for(let k=1;k<4;k++) ctx.lineTo(q[k].x,q[k].y);
+      ctx.closePath();
+      ctx.fillStyle='rgba(30,47,60,0.10)'; ctx.fill();
+      ctx.strokeStyle='#3a5468'; ctx.lineWidth=opt.lineW||1; ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(q[0].x,q[0].y); ctx.lineTo(q[1].x,q[1].y);
+      ctx.strokeStyle='#1e2f3c'; ctx.lineWidth=opt.frontW||3; ctx.stroke(); // 開口側粗邊
+    });
+    const c = M({x:r.px, z:r.pz});
+    ctx.fillStyle='#1e2f3c'; ctx.font=opt.labelFont||'10px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText('排'+(r.d+1), c.x, c.y + (opt.labelDy||0));
+    if(opt.dims){
+      ctx.font='10px sans-serif'; ctx.fillStyle='#6b6b66';
+      ctx.fillText(r.W+'×'+r.D+'cm', c.x, c.y+13);
+    }
+  });
+}
+
+/* ---------- 排列共用幾何與磁性吸附 ---------- */
+// 目前所有排的俯視幾何(含位移/旋轉)。
+// 這一排「實際被佔用」的欄區段(俯視):有任何格子存在的欄才算,連續欄合併成一段。
+// 回傳 local X 區段(以排中心為 0),被「移除格」挖空的欄不會出現——俯視圖與吸附都要用
+// 這份真實佔用範圍,不能用整個外框矩形(否則圖上看起來連著、實際櫃體卻是空的)。
+function rowOccupiedSpans(d){
+  const cols = layerCols(d);
+  const off=[0]; for(let i=0;i<cols.length;i++) off.push(off[i]+cols[i]);
+  const W = off[cols.length];
+  const spans=[]; let cur=null;
+  for(let c=0;c<cols.length;c++){
+    const has = colTopRow(c,d)!==-1;
+    if(has){ if(cur) cur[1]=off[c+1]; else cur=[off[c],off[c+1]]; }
+    else if(cur){ spans.push(cur); cur=null; }
+  }
+  if(cur) spans.push(cur);
+  return spans.map(sp=>[sp[0]-W/2, sp[1]-W/2]);
+}
+function currentRowGeom(){
+  const g = computeRowDefaults();
+  const rows = [];
+  for(let d=0; d<g.L; d++){
+    const sh = (state.rowShift&&state.rowShift[d]) || {dx:0,dz:0,rot:0};
+    const base = defaultAnchor(d, g);
+    const ax = base.ax + (sh.dx||0), az = base.az + (sh.dz||0);
+    const ang = facingAngle(state.depthFacing[d]||'front') + (sh.rot||0)*Math.PI/180;
+    const W = g.widths[d], D = state.depthLayers[d];
+    // 中心 = 前左角 anchor + 旋轉後的 (W/2, -D/2);rowCorners/命中測試/吸附沿用中心表示法
+    const c = Math.cos(ang), sn = Math.sin(ang);
+    const px = ax + (W/2)*c + (-D/2)*sn;
+    const pz = az - (W/2)*sn + (-D/2)*c;
+    rows.push({ d, px, pz, ang, W, D, spans: rowOccupiedSpans(d) });
+  }
+  return rows;
+}
+// 一個 local X 區段的四角(世界座標)。
+function spanCorners(gm, a, b){
+  const cs=Math.cos(gm.ang), sn=Math.sin(gm.ang);
+  return [[a,gm.D/2],[b,gm.D/2],[b,-gm.D/2],[a,-gm.D/2]]
+    .map(p=>({ x: gm.px + p[0]*cs + p[1]*sn, z: gm.pz - p[0]*sn + p[1]*cs }));
+}
+function rowCorners(gm){
+  const cs=Math.cos(gm.ang), sn=Math.sin(gm.ang);
+  return [[-gm.W/2,gm.D/2],[gm.W/2,gm.D/2],[gm.W/2,-gm.D/2],[-gm.W/2,-gm.D/2]]
+    .map(p=>({ x: gm.px + p[0]*cs + p[1]*sn, z: gm.pz - p[0]*sn + p[1]*cs }));
+}
+// 磁性吸附:找「我這排的角」與「其他排的角」距離最近的一對,在容差內就回傳需要的平移修正。
+// 角對角吸上之後,兩排的球接頭在世界座標重合 → 3D 與 BOM 自動共用,這正是轉角組合要的效果。
+const PLAN_SNAP_TOL = 8; // cm
+function rowSnapCorners(gm){
+  const spans = (gm.spans && gm.spans.length) ? gm.spans : [[-gm.W/2, gm.W/2]];
+  const pts = [];
+  spans.forEach(sp=>{ spanCorners(gm, sp[0], sp[1]).forEach(p=>pts.push(p)); });
+  return pts;
+}
+function planCornerSnap(d){
+  const rows = currentRowGeom();
+  const mine = rowSnapCorners(rows[d]);
+  let best = null;
+  rows.forEach(r=>{
+    if(r.d===d) return;
+    rowSnapCorners(r).forEach(oc=>{
+      mine.forEach(mc=>{
+        const dist = Math.hypot(oc.x-mc.x, oc.z-mc.z);
+        if(dist<PLAN_SNAP_TOL && (!best || dist<best.dist)) best = {dist, ddx:oc.x-mc.x, ddz:oc.z-mc.z, x:oc.x, z:oc.z};
+      });
+    });
+  });
+  return best;
+}
+// 拖曳中的統一落點邏輯:raw = 未吸附的累積位置;回傳 {snap} 供畫吸附提示。
+function applyRowDrag(d, rawDx, rawDz, allowSnap){
+  if(!state.rowShift[d]) state.rowShift[d]={dx:0,dz:0,rot:0};
+  const sh = state.rowShift[d];
+  sh.dx = +rawDx.toFixed(1); sh.dz = +rawDz.toFixed(1);
+  if(!allowSnap) return {snap:null};
+  const snap = planCornerSnap(d);
+  if(snap){
+    sh.dx = +(sh.dx + snap.ddx).toFixed(1);
+    sh.dz = +(sh.dz + snap.ddz).toFixed(1);
+    return {snap};
+  }
+  // 沒有角吸附 → 貼齊 2.5cm 網格
+  sh.dx = Math.round(sh.dx/2.5)*2.5;
+  sh.dz = Math.round(sh.dz/2.5)*2.5;
+  return {snap:null};
+}
+
+/* ---------- 排列編輯器(大俯視介面) ---------- */
+let peXf = null, peGeom = null, peDragging = false, peSnapOn = true, peSnapMark = null;
+function planEditorOpen(){ return document.getElementById('planEditorOverlay').style.display !== 'none'; }
+function drawPlanEditor(){
+  const overlay = document.getElementById('planEditorOverlay');
+  if(!overlay || overlay.style.display==='none') return;
+  const cv = document.getElementById('planEditorCanvas');
+  if(!cv || !cv.getContext) return;
+  const ctx = cv.getContext('2d'); if(!ctx) return;
+  const CW=cv.width, CH=cv.height;
+  ctx.clearRect(0,0,CW,CH);
+  const rows = currentRowGeom();
+  let minX=1e9,maxX=-1e9,minZ=1e9,maxZ=-1e9;
+  rows.forEach(r=>rowCorners(r).forEach(pt=>{ minX=Math.min(minX,pt.x);maxX=Math.max(maxX,pt.x);minZ=Math.min(minZ,pt.z);maxZ=Math.max(maxZ,pt.z); }));
+  const pad=44;
+  let sc, ox, oy;
+  if(peDragging && peXf){ ({sc,ox,oy}=peXf); }
+  else {
+    sc = Math.min((CW-pad*2)/Math.max(maxX-minX,1), (CH-pad*2)/Math.max(maxZ-minZ,1));
+    sc = Math.min(sc, 3); // 別放太大
+    ox = (CW-(maxX-minX)*sc)/2 - minX*sc;
+    oy = (CH-(maxZ-minZ)*sc)/2 - minZ*sc;
+    peXf = {sc,ox,oy};
+  }
+  const M = pt=>({ x: ox+pt.x*sc, y: oy+pt.z*sc });
+  // 25cm 網格
+  ctx.strokeStyle='rgba(30,47,60,0.07)'; ctx.lineWidth=1;
+  const gw=25*sc;
+  if(gw>7){
+    const startX = ox % gw, startY = oy % gw;
+    for(let x=startX; x<CW; x+=gw){ ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,CH); ctx.stroke(); }
+    for(let y=startY; y<CH; y+=gw){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(CW,y); ctx.stroke(); }
+  }
+  peGeom = rows;
+  drawPlanRows(ctx, rows, M, {labelFont:'bold 13px sans-serif', frontW:4, lineW:1.5, labelDy:-8, dims:true});
+  // 吸附提示圈
+  if(peSnapMark){
+    const q = M(peSnapMark);
+    ctx.beginPath(); ctx.arc(q.x,q.y,8,0,Math.PI*2);
+    ctx.strokeStyle='#d9560e'; ctx.lineWidth=2.5; ctx.stroke();
+  }
+  ctx.fillStyle='#9a9a94'; ctx.font='11px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='bottom';
+  ctx.fillText('▼ 你在這一側(前)', CW/2, CH-4);
+}
+(function(){
+  const overlay = document.getElementById('planEditorOverlay');
+  const cv = document.getElementById('planEditorCanvas');
+  if(!overlay || !cv) return;
+  function open(){ overlay.style.display=''; peXf=null; peSnapMark=null; drawPlanEditor(); }
+  function close(){ overlay.style.display='none'; }
+  document.getElementById('openPlanEditorBtn').addEventListener('click', open);
+  document.getElementById('peCloseBtn').addEventListener('click', close);
+  overlay.addEventListener('pointerdown', e=>{ if(e.target===overlay) close(); });
+  window.addEventListener('keydown', e=>{ if(e.key==='Escape' && planEditorOpen()) close(); });
+  document.getElementById('peSnapBtn').addEventListener('click', ()=>{
+    peSnapOn = !peSnapOn;
+    const b = document.getElementById('peSnapBtn');
+    b.textContent = peSnapOn ? '🧲 吸附:開' : '🧲 吸附:關';
+    b.classList.toggle('emActive', peSnapOn);
+    b.classList.toggle('secondary', !peSnapOn);
+  });
+  document.getElementById('peLineBtn').addEventListener('click', ()=>{ applyLayoutLine(); });
+  document.getElementById('peLBtn').addEventListener('click', ()=>{ applyLayoutL(); });
+  document.getElementById('peUBtn').addEventListener('click', ()=>{ applyLayoutU(); });
+  document.getElementById('peZBtn').addEventListener('click', ()=>{ applyLayoutZ(); });
+  function canvasPt(e){
+    const r = cv.getBoundingClientRect();
+    return { x:(e.clientX-r.left)*(cv.width/r.width), y:(e.clientY-r.top)*(cv.height/r.height) };
+  }
+  function hitRow(pt){
+    if(!peXf || !peGeom) return null;
+    const wx=(pt.x-peXf.ox)/peXf.sc, wz=(pt.y-peXf.oy)/peXf.sc;
+    for(let i=peGeom.length-1;i>=0;i--){
+      const gm=peGeom[i];
+      const dx=wx-gm.px, dz=wz-gm.pz;
+      const cs=Math.cos(gm.ang), sn=Math.sin(gm.ang);
+      const lx=dx*cs-dz*sn, lz=dx*sn+dz*cs;
+      if(Math.abs(lx)<=gm.W/2+3 && Math.abs(lz)<=gm.D/2+3) return gm.d;
+    }
+    return null;
+  }
+  let drag=null;
+  cv.addEventListener('pointerdown', e=>{
+    e.stopPropagation(); e.preventDefault();
+    const pt=canvasPt(e), d=hitRow(pt);
+    if(d===null) return;
+    const sh = state.rowShift[d] || {dx:0,dz:0,rot:0};
+    drag={d, last:pt, rawDx:sh.dx||0, rawDz:sh.dz||0, moved:false};
+    peDragging=true; cv.style.cursor='grabbing';
+    try{ cv.setPointerCapture(e.pointerId); }catch(x){}
+  });
+  cv.addEventListener('pointermove', e=>{
+    if(!drag || !peXf) return;
+    e.stopPropagation();
+    const pt=canvasPt(e);
+    drag.rawDx += (pt.x-drag.last.x)/peXf.sc;
+    drag.rawDz += (pt.y-drag.last.y)/peXf.sc;
+    drag.last=pt; drag.moved=true;
+    const res = applyRowDrag(drag.d, drag.rawDx, drag.rawDz, peSnapOn && !e.shiftKey);
+    peSnapMark = res.snap ? {x:res.snap.x, z:res.snap.z} : null;
+    drawPlanEditor();
+  });
+  function finish(){
+    if(!drag) return;
+    const moved=drag.moved;
+    drag=null; peDragging=false; peSnapMark=null; cv.style.cursor='grab';
+    if(moved) renderAll();
+    else drawPlanEditor();
+  }
+  cv.addEventListener('pointerup', e=>{ e.stopPropagation(); finish(); });
+  cv.addEventListener('pointercancel', finish);
+  cv.addEventListener('dblclick', e=>{
+    e.stopPropagation(); e.preventDefault();
+    const d=hitRow(canvasPt(e));
+    if(d===null) return;
+    if(!state.rowShift[d]) state.rowShift[d]={dx:0,dz:0,rot:0};
+    state.rowShift[d].rot = ((state.rowShift[d].rot||0)+45)%360;
+    renderAll();
+  });
+})();
+
+// 俯視小地圖互動:拖曳任一排 = 調整該排 dx/dz(放開時貼齊 2.5cm 並重建 3D);
+// 雙擊任一排 = 旋轉 +45°。這就是「完全客製排列」的入口,數值同步顯示在左欄的每排擺放欄位。
+(function(){
+  const cv = document.getElementById('planMini');
+  if(!cv) return;
+  function canvasPt(e){
+    const r = cv.getBoundingClientRect();
+    return { x:(e.clientX-r.left)*(cv.width/r.width), y:(e.clientY-r.top)*(cv.height/r.height) };
+  }
+  // 命中測試:canvas 座標 → 世界座標 → 逐排(由上層畫的往回找)換到該排局部座標判斷是否在矩形內
+  function hitRow(pt){
+    if(!planMiniXf || !planMiniGeom) return null;
+    const wx = (pt.x - planMiniXf.ox)/planMiniXf.sc;
+    const wz = (pt.y - planMiniXf.oy)/planMiniXf.sc;
+    for(let i=planMiniGeom.length-1; i>=0; i--){
+      const gm = planMiniGeom[i];
+      const dx = wx-gm.px, dz = wz-gm.pz;
+      const cs = Math.cos(gm.ang), sn = Math.sin(gm.ang);
+      // 反向旋轉(R_y 的逆):lx = dx*cs - dz*sn, lz = dx*sn + dz*cs
+      const lx = dx*cs - dz*sn, lz = dx*sn + dz*cs;
+      if(Math.abs(lx)<=gm.W/2+2 && Math.abs(lz)<=gm.D/2+2) return gm.d;
+    }
+    return null;
+  }
+  let drag = null;
+  cv.addEventListener('pointerdown', e=>{
+    e.stopPropagation(); e.preventDefault();
+    const pt = canvasPt(e);
+    const d = hitRow(pt);
+    if(d===null) return;
+    const sh0 = state.rowShift[d] || {dx:0,dz:0,rot:0};
+    drag = {d, last:pt, rawDx:sh0.dx||0, rawDz:sh0.dz||0, moved:false};
+    planMiniDragging = true;
+    cv.style.cursor='grabbing';
+    try{ cv.setPointerCapture(e.pointerId); }catch(x){}
+  });
+  cv.addEventListener('pointermove', e=>{
+    if(!drag) return;
+    e.stopPropagation();
+    const pt = canvasPt(e);
+    drag.rawDx += (pt.x-drag.last.x)/planMiniXf.sc;
+    drag.rawDz += (pt.y-drag.last.y)/planMiniXf.sc;
+    drag.last = pt; drag.moved = true;
+    applyRowDrag(drag.d, drag.rawDx, drag.rawDz, !e.shiftKey); // 同一套磁性吸附+網格貼齊
+    drawPlanMini(); // 拖曳中只重畫小地圖(輕量);放開才重建整個 3D
+  });
+  function finishDrag(){
+    if(!drag) return;
+    const moved = drag.moved, d = drag.d;
+    drag = null; planMiniDragging = false;
+    cv.style.cursor='grab';
+    if(moved) renderAll(); // 吸附/貼齊已在拖曳過程中套用
+  }
+  cv.addEventListener('pointerup', e=>{ e.stopPropagation(); finishDrag(); });
+  cv.addEventListener('pointercancel', finishDrag);
+  cv.addEventListener('dblclick', e=>{
+    e.stopPropagation(); e.preventDefault();
+    const d = hitRow(canvasPt(e));
+    if(d===null) return;
+    if(!state.rowShift[d]) state.rowShift[d]={dx:0,dz:0,rot:0};
+    state.rowShift[d].rot = ((state.rowShift[d].rot||0) + 45) % 360;
+    renderAll();
+  });
+})();
+
 /* ---------- 控制項綁定 ---------- */
 function bindTopControls(){
+  // 欄數現在改的是「目前正在編輯那一排」自己的欄數(currentEditLayer),不是全部排共用。
   document.getElementById('colsCount').addEventListener('change', e=>{
     let n = Math.max(1, Math.min(8, parseInt(e.target.value)||1));
     e.target.value = n;
-    while(state.cols.length < n) state.cols.push(75);
-    while(state.cols.length > n) state.cols.pop();
+    const cols = layerCols(currentEditLayer);
+    while(cols.length < n) cols.push(75);
+    while(cols.length > n) cols.pop();
     renderAll();
   });
+  // 層數現在改的也是「目前正在編輯那一排」自己的層數(currentEditLayer),邏輯跟欄數完全對稱,
+  // 不是全部排共用。
   document.getElementById('rowsCount').addEventListener('change', e=>{
     let n = Math.max(1, Math.min(6, parseInt(e.target.value)||1));
     e.target.value = n;
-    // 新增的層沿用最上面那一層目前的高度(比固定塞35cm更符合直覺:通常客戶是想「再加一層一樣的」);
-    // 減少層數時從最上面開始收,跟 renderRowHeightList/3D 的索引順序一致。
-    const fillHeight = state.rowHeights.length ? state.rowHeights[state.rowHeights.length-1] : 35;
-    while(state.rowHeights.length < n) state.rowHeights.push(fillHeight);
-    while(state.rowHeights.length > n) state.rowHeights.pop();
-    state.rows = n;
+    // 新增的層沿用這一排最上面那一層目前的高度(比固定塞35cm更符合直覺:通常客戶是想
+    // 「再加一層一樣的」);減少層數時從最上面開始收,跟 renderRowHeightList/3D 的索引順序一致。
+    const heights = layerRowHeights(currentEditLayer);
+    const fillHeight = heights.length ? heights[heights.length-1] : 35;
+    while(heights.length < n) heights.push(fillHeight);
+    while(heights.length > n) heights.pop();
     renderAll();
   });
-  // parseFloat(而非 parseInt),因為 17.5 / 39.5 是有效的官方模組尺寸(帶小數)。
-  document.getElementById('depth').addEventListener('change', e=>{ state.depth=parseFloat(e.target.value); renderAll(); });
+  document.getElementById('depthLayersCount').addEventListener('change', e=>{
+    let n = Math.max(1, Math.min(4, parseInt(e.target.value)||1));
+    e.target.value = n;
+    // 新增的排沿用最後一排目前的深度、開口預設朝前,欄寬/層高也先複製最後一排的(之後可再各自調整);
+    // 減少排數時從最後一排開始收。
+    const fillDepth = state.depthLayers.length ? state.depthLayers[state.depthLayers.length-1] : 35;
+    const fillCols = state.layerCols.length ? state.layerCols[state.layerCols.length-1].slice() : [75];
+    const fillRowHeights = state.layerRowHeights.length ? state.layerRowHeights[state.layerRowHeights.length-1].slice() : [35,35,35];
+    if(!Array.isArray(state.rowShift)) state.rowShift = [];
+    while(state.depthLayers.length < n){ state.depthLayers.push(fillDepth); state.depthFacing.push('front'); state.rowShift.push({dx:0,dz:0,rot:0}); state.layerCols.push(fillCols.slice()); state.layerRowHeights.push(fillRowHeights.slice()); }
+    while(state.depthLayers.length > n){ state.depthLayers.pop(); state.depthFacing.pop(); state.rowShift.pop(); state.layerCols.pop(); state.layerRowHeights.pop(); }
+    if(currentEditLayer >= state.depthLayers.length) currentEditLayer = state.depthLayers.length-1;
+    renderAll();
+  });
   document.getElementById('mainColor').addEventListener('change', e=>{ state.mainColor=e.target.value; renderAll(); });
+  document.getElementById('layoutLineBtn').addEventListener('click', applyLayoutLine);
+  document.getElementById('layoutLBtn').addEventListener('click', applyLayoutL);
+  document.getElementById('layoutUBtn').addEventListener('click', applyLayoutU);
+  document.getElementById('layoutZBtn').addEventListener('click', applyLayoutZ);
   ['leftPanel','rightPanel','topPanel','bottomPanel'].forEach(id=>{
     document.getElementById(id).addEventListener('change', e=>{ state[id]=e.target.checked; renderAll(); });
   });
 }
 function syncTopControlsFromState(){
-  document.getElementById('colsCount').value = state.cols.length;
-  document.getElementById('rowsCount').value = state.rows;
-  document.getElementById('depth').value = state.depth;
+  document.getElementById('colsCount').value = layerCols(currentEditLayer).length;
+  document.getElementById('rowsCount').value = layerRowHeights(currentEditLayer).length;
+  document.getElementById('depthLayersCount').value = state.depthLayers.length;
   document.getElementById('mainColor').value = state.mainColor;
   document.getElementById('leftPanel').checked = state.leftPanel;
   document.getElementById('rightPanel').checked = state.rightPanel;
@@ -1781,7 +3307,7 @@ document.getElementById('importJsonFile').addEventListener('change', e=>{
   const reader = new FileReader();
   reader.onload = evt=>{
     try{
-      state = Object.assign(state, migrateLoadedState(JSON.parse(evt.target.result)));
+      applyLoadedRoot(JSON.parse(evt.target.result));
       syncTopControlsFromState();
       renderAll();
       saveState();
@@ -1803,12 +3329,18 @@ document.getElementById('printBtn').addEventListener('click', ()=> window.print(
 function chatSend(){
   const inp = document.getElementById('chatInput');
   const text = inp.value;
-  inp.value = '';
+  inp.value = '';           // 先清空再送,無論後續成功失敗輸入框都不留字
+  inp.focus();
   processChatMessage(text);
 }
 document.getElementById('chatSendBtn').addEventListener('click', chatSend);
 document.getElementById('chatInput').addEventListener('keydown', e=>{
-  if(e.key==='Enter'){ e.preventDefault(); chatSend(); }
+  if(e.key!=='Enter') return;
+  // 中文輸入法選字時按的 Enter(isComposing / keyCode 229)只是「確認文字」,
+  // 不能當成送出——否則會搶在輸入法完成前發送,輸入框還會殘留剛選好的字。
+  // 所以:選字那一下 Enter 不動作,「再按一次 Enter」才真正送出。
+  if(e.isComposing || e.keyCode===229) return;
+  e.preventDefault(); chatSend();
 });
 document.getElementById('chatResetBtn').addEventListener('click', chatReset);
 document.getElementById('chatEndpointInput').addEventListener('change', e=>{
@@ -1820,18 +3352,225 @@ document.getElementById('chatAdminToggle').addEventListener('click', ()=>{
   panel.style.display = (panel.style.display==='none') ? '' : 'none';
 });
 
+/* ---------- 3D 點擊編輯:加面板 / 移除 / 加支架(都作用於 currentEditLayer) ---------- */
+function togglePanelAt(d,r,c){
+  const cell = getCell(r,c,d);
+  cell.type = (cell.type==='open') ? 'panel_fixed' : 'open';
+  renderAll();
+}
+function removeCellAt(d,r,c){
+  state.mask[cellKey(r,c,d)] = false;
+  // 移除一格之後,下方那格的「頂蓋」原本是這一格的結構層板,會跟著消失。
+  // 若下方還有格子,自動在這條水平線補一片自由層板,讓下方保持封頂;
+  // 不需要時可用「加層板」模式點同一位置把它拿掉。
+  // (若這一欄移除後的新頂正好由「頂板」接手覆蓋,就不重複補,避免 BOM 多算一片。)
+  if(isFilled(r-1,c,d) && !hasFreeHPanel(r,c,d)){
+    const coveredByTop = state.topPanel && colTopRow(c,d)===r-1;
+    if(!coveredByTop) state.freeHPanels[freeHKey(r,c,d)] = ''; // '' = 跟隨主色
+  }
+  renderAll();
+}
+// 逐根實體鋼管:點一下就切換這一根(本來有→拆掉,本來沒有→補上)。
+// fam='H'/'V' 需要 pl(平面 0/1);fam='Z'(深度)忽略 pl。
+function toggleTube(d,fam,pl,c,r){
+  // 已固化:直接編這一排的明確鋼管清單(有→拆、沒有→補)。
+  if(Array.isArray(state.explicitFrame) && state.explicitFrame[d]){
+    const ef = state.explicitFrame[d];
+    const arr = fam==='H' ? 'H' : fam==='V' ? 'V' : 'Z';
+    const k = (fam==='Z') ? (c+'_'+r) : (pl+'_'+c+'_'+r);
+    const set = new Set(ef[arr]||[]);
+    if(set.has(k)) set.delete(k); else set.add(k);
+    ef[arr] = [...set];
+    renderAll(); return;
+  }
+  let key, present;
+  if(fam==='Z'){ key = d+'_Z_'+c+'_'+r; present = isPhysPresent(d,'Z',null,c,r); }
+  else { key = d+'_'+fam+'_'+pl+'_'+c+'_'+r; present = isPhysPresent(d,fam,pl,c,r); }
+  state.frameEdits[key] = !present; // present→false(拆), absent→true(補)
+  renderAll();
+}
+// 固化框架:把目前所有排算出來的框架轉成明確鋼管清單;之後框架不再跟著格子自動增減。
+function bakeFrame(){
+  const list = [];
+  for(let d=0; d<state.depthLayers.length; d++){
+    const f = computePhysicalFrame(d);
+    list.push({H:[...f.H], V:[...f.V], Z:[...f.Z]});
+  }
+  state.explicitFrame = list;
+  state.frameEdits = {};
+  renderAll();
+}
+function unbakeFrame(){ state.explicitFrame = null; renderAll(); }
+// 自由水平面板:點一下就切換這個水平格線位置的面板(有→拿掉,沒有→放上,預設主色)。
+function toggleFreeHPanel(d,r,c){
+  const key = freeHKey(r,c,d);
+  if(key in state.freeHPanels) delete state.freeHPanels[key];
+  else state.freeHPanels[key] = ''; // '' = 主色
+  renderAll();
+}
+// 在 layer d 的欄索引 at 插入一個新欄:原本 >=at 的欄整體往右移一格。更新所有以「欄索引」
+// 為 key 的狀態(cells/backPanels/shelfColors/mask 的 c、dividers 的 b、top/bottomPanelColors 的欄)。
+function reindexInsertColumn(d, at){
+  const shiftColOf3 = (mapName)=>{ // key = d_r_c(欄在第三段)
+    const src = state[mapName], out = {};
+    Object.keys(src).forEach(k=>{ const p=k.split('_'); if(+p[0]===d && p.length===3){ const cc=+p[2]; if(cc>=at) p[2]=String(cc+1); } out[p.join('_')]=src[k]; });
+    state[mapName]=out;
+  };
+  ['cells','backPanels','shelfColors','mask','dividers'].forEach(shiftColOf3);
+  ['topPanelColors','bottomPanelColors'].forEach(mapName=>{ // key = d_c
+    const src = state[mapName], out = {};
+    Object.keys(src).forEach(k=>{ const p=k.split('_'); if(+p[0]===d && p.length===2){ const cc=+p[1]; if(cc>=at) p[1]=String(cc+1); } out[p.join('_')]=src[k]; });
+    state[mapName]=out;
+  });
+  // 逐根鋼管編輯(frameEdits)也是以欄索引為 key,插欄時同樣要往右移一格,
+  // 否則使用者先前補/拆的那幾根鋼管會「跳」到新欄的位置(看起來像支架憑空消失)。
+  // H 的欄段 c 在第4段、V 的垂直線 c 在第4段、Z 的垂直線 c 在第3段。
+  (function(){
+    const src = state.frameEdits || {}, out = {};
+    Object.keys(src).forEach(k=>{
+      const p=k.split('_');
+      if(+p[0]===d){
+        if((p[1]==='H'||p[1]==='V') && p.length===5){ const cc=+p[3]; if(cc>=at) p[3]=String(cc+1); }
+        else if(p[1]==='Z' && p.length===4){ const cc=+p[2]; if(cc>=at) p[2]=String(cc+1); }
+      }
+      out[p.join('_')]=src[k];
+    });
+    state.frameEdits=out;
+  })();
+  // 固化清單(explicitFrame)同樣要把欄索引右移:H 的欄段/V 的垂直線/Z 的垂直線。
+  if(Array.isArray(state.explicitFrame) && state.explicitFrame[d]){
+    const ef = state.explicitFrame[d];
+    ['H','V'].forEach(f=>{ ef[f]=(ef[f]||[]).map(k=>{ const p=k.split('_'); const cc=+p[1]; if(cc>=at) p[1]=String(cc+1); return p.join('_'); }); });
+    ef.Z=(ef.Z||[]).map(k=>{ const p=k.split('_'); const cc=+p[0]; if(cc>=at) p[0]=String(cc+1); return p.join('_'); });
+  }
+  // 自由水平面板(freeHPanels,key = d_r_c)的欄索引也要跟著移。
+  (function(){
+    const src = state.freeHPanels || {}, out = {};
+    Object.keys(src).forEach(k=>{
+      const p=k.split('_');
+      if(+p[0]===d && p.length===3){ const cc=+p[2]; if(cc>=at) p[2]=String(cc+1); }
+      out[p.join('_')]=src[k];
+    });
+    state.freeHPanels=out;
+  })();
+}
+// 在 layer d 的層索引 at 插入一個新層:原本 >=at 的層整體往上移一格。更新所有以「層索引」
+// 為 key 的狀態(cells/backPanels/shelfColors/mask/dividers 的 r、left/rightPanelColors 的層)。
+function reindexInsertRow(d, at){
+  const shiftRowOf3 = (mapName)=>{ // key = d_r_c 或 d_r_b(層在第二段)
+    const src = state[mapName], out = {};
+    Object.keys(src).forEach(k=>{ const p=k.split('_'); if(+p[0]===d && p.length===3){ const rr=+p[1]; if(rr>=at) p[1]=String(rr+1); } out[p.join('_')]=src[k]; });
+    state[mapName]=out;
+  };
+  ['cells','backPanels','shelfColors','mask','dividers'].forEach(shiftRowOf3);
+  ['leftPanelColors','rightPanelColors','leftPanelTypes','rightPanelTypes'].forEach(mapName=>{ // key = d_r
+    const src = state[mapName], out = {};
+    Object.keys(src).forEach(k=>{ const p=k.split('_'); if(+p[0]===d && p.length===2){ const rr=+p[1]; if(rr>=at) p[1]=String(rr+1); } out[p.join('_')]=src[k]; });
+    state[mapName]=out;
+  });
+  // 逐根鋼管編輯(frameEdits):插層時,H 的水平線 r(第5段)、V 的層段 r(第5段)、
+  // Z 的水平線 r(第4段)都要往上移一格,理由同插欄(否則鋼管編輯會跳位、像支架消失)。
+  (function(){
+    const src = state.frameEdits || {}, out = {};
+    Object.keys(src).forEach(k=>{
+      const p=k.split('_');
+      if(+p[0]===d){
+        if((p[1]==='H'||p[1]==='V') && p.length===5){ const rr=+p[4]; if(rr>=at) p[4]=String(rr+1); }
+        else if(p[1]==='Z' && p.length===4){ const rr=+p[3]; if(rr>=at) p[3]=String(rr+1); }
+      }
+      out[p.join('_')]=src[k];
+    });
+    state.frameEdits=out;
+  })();
+  // 固化清單(explicitFrame)同樣要把層索引上移:H 的水平線/V 的層段/Z 的水平線。
+  if(Array.isArray(state.explicitFrame) && state.explicitFrame[d]){
+    const ef = state.explicitFrame[d];
+    ['H','V'].forEach(f=>{ ef[f]=(ef[f]||[]).map(k=>{ const p=k.split('_'); const rr=+p[2]; if(rr>=at) p[2]=String(rr+1); return p.join('_'); }); });
+    ef.Z=(ef.Z||[]).map(k=>{ const p=k.split('_'); const rr=+p[1]; if(rr>=at) p[1]=String(rr+1); return p.join('_'); });
+  }
+  // 自由水平面板(freeHPanels,key = d_r_c)的水平線索引也要跟著移。
+  (function(){
+    const src = state.freeHPanels || {}, out = {};
+    Object.keys(src).forEach(k=>{
+      const p=k.split('_');
+      if(+p[0]===d && p.length===3){ const rr=+p[1]; if(rr>=at) p[1]=String(rr+1); }
+      out[p.join('_')]=src[k];
+    });
+    state.freeHPanels=out;
+  })();
+}
+function addFrameAt(d,r,c,grow){
+  const cols = layerCols(d), heights = layerRowHeights(d);
+  if(grow==='right'){
+    const newC = cols.length;
+    cols.push(cols[cols.length-1]);
+    for(let rr=0; rr<heights.length; rr++) state.mask[cellKey(rr,newC,d)] = (rr===r); // 只留點到的那一列
+  } else if(grow==='left'){
+    reindexInsertColumn(d, 0);
+    cols.unshift(cols[0]);
+    for(let rr=0; rr<heights.length; rr++) state.mask[cellKey(rr,0,d)] = (rr===r);
+  } else if(grow==='top'){
+    const newR = heights.length;
+    heights.push(heights[heights.length-1]);
+    for(let cc=0; cc<cols.length; cc++) state.mask[cellKey(newR,cc,d)] = (cc===c); // 只留點到的那一欄
+  } else if(grow==='bottom'){
+    reindexInsertRow(d, 0);
+    heights.unshift(heights[0]);
+    for(let cc=0; cc<cols.length; cc++) state.mask[cellKey(0,cc,d)] = (cc===c);
+  } else {
+    state.mask[cellKey(r,c,d)] = true; // 內部補格
+  }
+  renderAll();
+}
+document.querySelectorAll('#editModeBar button[data-mode]').forEach(b=>{
+  b.addEventListener('click', ()=> setEditMode(b.getAttribute('data-mode')));
+});
+document.getElementById('reframeBtn').addEventListener('click', ()=>{ if(three) three.frame(three.lastDiag); });
+// 一鍵「重拆重補」:清空所有逐根鋼管的手動編輯(frameEdits),框架回到依格子自動推導的
+// 正確狀態。舊版在「加支架(往左/往下)」時編輯紀錄沒跟著移位,若存檔裡帶著跳位的紀錄,
+// 按這顆就能整批歸位;格子、面板、門片、顏色設定全部保留不動。
+document.getElementById('resetTubesBtn').addEventListener('click', ()=>{
+  const n = Object.keys(state.frameEdits||{}).length;
+  const baked = Array.isArray(state.explicitFrame);
+  if(!n && !baked){ alert('目前沒有任何逐根鋼管的手動編輯紀錄。'); return; }
+  const msg = baked
+    ? '框架目前是「固化」狀態。要解除固化並清除所有逐根鋼管紀錄、回到依格子自動產生的框架嗎?\n(格子/面板/顏色不受影響)'
+    : '要清除 '+n+' 筆逐根鋼管的補/拆紀錄嗎?\n框架會回到依格子自動產生的完整狀態(格子/面板/顏色不受影響),之後可再重新逐根調整。';
+  if(!confirm(msg)) return;
+  state.frameEdits = {};
+  state.explicitFrame = null;
+  renderAll();
+});
+// 固化框架/改回自動:固化後框架凍結成明確清單,移除格/加格只影響面板與層板,支架不動。
+document.getElementById('bakeBtn').addEventListener('click', ()=>{
+  if(Array.isArray(state.explicitFrame)){
+    if(confirm('要解除固化、回到「框架依格子自動產生」嗎?\n(固化期間逐根編的鋼管會失效,回到自動推導+逐根疊加的模式)')) unbakeFrame();
+  } else {
+    bakeFrame();
+    alert('框架已固化:現在移除格/加格不會再動到支架,逐根鋼管直接編固化清單。再按一次可改回自動。');
+  }
+});
+
 /* ---------- 總渲染 ---------- */
 function renderAll(){
-  normalizeRowHeights();
+  normalizeDepthLayers();
+  normalizeLayerCols();
+  normalizeLayerRowHeights();
   normalizePrices();
+  renderGridEditorLayerTabs(); // 校正 currentEditLayer 到有效範圍內,下面才會抓到正確的排別
   renderColWidthList();
   renderRowHeightList();
+  renderDepthLayerList();
   renderAllSegColorLists();
   renderShapeEditor();
   renderGridEditor();
   renderPriceTables();
   rebuild3D();
+  drawPlanMini();
+  drawPlanEditor();
   recompute();
+  const bakeBtn = document.getElementById('bakeBtn');
+  if(bakeBtn) bakeBtn.textContent = Array.isArray(state.explicitFrame) ? '🔓 改回自動框架' : '🔒 固化框架';
   saveState();
 }
 
@@ -1844,7 +3583,7 @@ initThree();
 renderAll();
 document.getElementById('chatEndpointInput').value = getChatEndpoint();
 setChatStatus();
-addChatBubble('您好!我是幫您規劃收納櫃的小幫手,用聊天的方式跟我說說需求就可以了,例如「我要一個電視櫃,現代簡約風,預算中等,寬200高150」,或者想到什麼說什麼也沒關係,我會繼續問您細節。', 'bot');
+addChatBubble('嗨!隨意跟我聊聊你想要的感覺就好——例如「客廳放黑膠跟音響,想要沉穩一點」「工作室的白色開放書牆」「玄關矮櫃,L型轉角」。不用講規格,我會直接先排一版給你看,再一起慢慢調。', 'bot');
 </script>
 </body>
 </html>
